@@ -1,15 +1,18 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { checkHealth, listDocuments, listBatches } from '../api/endpoints';
-import { DocumentListItem, BatchInfo, HealthStatus } from '../types';
-import StatusBadge from '../components/StatusBadge';
+import { getDashboardStats, DashboardStats } from '../api/endpoints';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ErrorMessage from '../components/ErrorMessage';
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  PieChart, Pie, Cell, Legend, LineChart, Line,
+} from 'recharts';
+
+const COLORS = ['#10b981', '#ef4444', '#f59e0b', '#6366f1', '#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6'];
+const DOC_STATUS_COLORS = ['#10b981', '#ef4444', '#a3a3a3', '#3b82f6'];
+const OWNERSHIP_COLORS = ['#10b981', '#f59e0b', '#ef4444'];
 
 export default function Dashboard() {
-  const [health, setHealth] = useState<HealthStatus | null>(null);
-  const [documents, setDocuments] = useState<DocumentListItem[]>([]);
-  const [batches, setBatches] = useState<BatchInfo[]>([]);
+  const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -17,14 +20,8 @@ export default function Dashboard() {
     setLoading(true);
     setError(null);
     try {
-      const [healthData, docsData, batchData] = await Promise.all([
-        checkHealth(),
-        listDocuments({ limit: 10 }),
-        listBatches({ limit: 5 }),
-      ]);
-      setHealth(healthData);
-      setDocuments(docsData);
-      setBatches(batchData);
+      const data = await getDashboardStats();
+      setStats(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load dashboard');
     } finally {
@@ -38,135 +35,141 @@ export default function Dashboard() {
 
   if (loading) return <LoadingSpinner message="Loading dashboard..." />;
   if (error) return <ErrorMessage message={error} onRetry={loadData} />;
+  if (!stats) return null;
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-        <Link to="/upload" className="btn-primary">
-          Upload Documents
-        </Link>
+      <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+
+      {/* Summary Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <StatCard label="Total Documents" value={stats.summary.total_documents} color="blue" />
+        <StatCard label="Completed" value={stats.summary.completed_documents} color="green" />
+        <StatCard label="Total Batches" value={stats.summary.total_batches} color="indigo" />
+        <StatCard label="Total Candidates" value={stats.summary.total_candidates} color="purple" />
       </div>
 
-      {/* System Health */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <HealthCard
-          title="API Server"
-          status={health?.services.api ?? false}
-        />
-        <HealthCard
-          title="Ollama LLM"
-          status={health?.services.ollama ?? false}
-        />
-        <HealthCard
-          title="AI Model"
-          status={health?.services.ollama_model ?? false}
-        />
-      </div>
-
-      {/* Recent Batches */}
-      {batches.length > 0 && (
+      {/* Charts Row 1 */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Document Processing Status - Pie */}
         <div className="card">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Recent Upload Batches</h2>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-200">
-                  <th className="text-left py-2 font-medium text-gray-500">Reference</th>
-                  <th className="text-left py-2 font-medium text-gray-500">Files</th>
-                  <th className="text-left py-2 font-medium text-gray-500">Processed</th>
-                  <th className="text-left py-2 font-medium text-gray-500">Failed</th>
-                  <th className="text-left py-2 font-medium text-gray-500">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {batches.map((batch) => (
-                  <tr key={batch.id} className="border-b border-gray-100">
-                    <td className="py-2 font-mono text-xs">{batch.batch_reference}</td>
-                    <td className="py-2">{batch.total_files}</td>
-                    <td className="py-2">{batch.processed_files}</td>
-                    <td className="py-2">{batch.failed_files}</td>
-                    <td className="py-2">
-                      <StatusBadge status={batch.processing_status} />
-                    </td>
-                  </tr>
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Document Processing Status</h2>
+          <ResponsiveContainer width="100%" height={260}>
+            <PieChart>
+              <Pie
+                data={stats.document_status.filter(d => d.count > 0)}
+                cx="50%"
+                cy="50%"
+                innerRadius={55}
+                outerRadius={90}
+                paddingAngle={3}
+                dataKey="count"
+                nameKey="status"
+                label={((props: Record<string, unknown>) => `${props.name}: ${props.value}`) as never}
+              >
+                {stats.document_status.map((_, i) => (
+                  <Cell key={i} fill={DOC_STATUS_COLORS[i % DOC_STATUS_COLORS.length]} />
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </Pie>
+              <Tooltip />
+              <Legend />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Ownership Verification - Pie */}
+        <div className="card">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Ownership Verification</h2>
+          <ResponsiveContainer width="100%" height={260}>
+            <PieChart>
+              <Pie
+                data={stats.ownership_verification.filter(d => d.count > 0)}
+                cx="50%"
+                cy="50%"
+                innerRadius={55}
+                outerRadius={90}
+                paddingAngle={3}
+                dataKey="count"
+                nameKey="status"
+                label={((props: Record<string, unknown>) => `${props.name}: ${props.value}`) as never}
+              >
+                {stats.ownership_verification.map((_, i) => (
+                  <Cell key={i} fill={OWNERSHIP_COLORS[i % OWNERSHIP_COLORS.length]} />
+                ))}
+              </Pie>
+              <Tooltip />
+              <Legend />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Charts Row 2 */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Daily Documents - Line Chart */}
+        <div className="card">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Documents (Last 7 Days)</h2>
+          <ResponsiveContainer width="100%" height={240}>
+            <LineChart data={stats.daily_documents}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="date" tick={{ fontSize: 12 }} />
+              <YAxis allowDecimals={false} />
+              <Tooltip />
+              <Line type="monotone" dataKey="count" stroke="#3b82f6" strokeWidth={2} dot={{ r: 4 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Daily Batches - Line Chart */}
+        <div className="card">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Batches (Last 7 Days)</h2>
+          <ResponsiveContainer width="100%" height={240}>
+            <LineChart data={stats.daily_batches}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="date" tick={{ fontSize: 12 }} />
+              <YAxis allowDecimals={false} />
+              <Tooltip />
+              <Line type="monotone" dataKey="count" stroke="#6366f1" strokeWidth={2} dot={{ r: 4 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Document Type Distribution - Bar Chart */}
+      {stats.document_types.length > 0 && (
+        <div className="card">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Document Type Distribution</h2>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={stats.document_types} layout="vertical" margin={{ left: 100 }}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis type="number" allowDecimals={false} />
+              <YAxis dataKey="type" type="category" tick={{ fontSize: 12 }} width={100} />
+              <Tooltip />
+              <Bar dataKey="count" fill="#6366f1" radius={[0, 4, 4, 0]}>
+                {stats.document_types.map((_, i) => (
+                  <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
         </div>
       )}
-
-      {/* Recent Documents */}
-      <div className="card">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-semibold text-gray-900">Recent Documents</h2>
-          <Link to="/documents" className="text-sm text-primary-600 hover:text-primary-700">
-            View all
-          </Link>
-        </div>
-        {documents.length === 0 ? (
-          <p className="text-sm text-gray-500">No documents uploaded yet.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-200">
-                  <th className="text-left py-2 font-medium text-gray-500">Filename</th>
-                  <th className="text-left py-2 font-medium text-gray-500">Size</th>
-                  <th className="text-left py-2 font-medium text-gray-500">Type</th>
-                  <th className="text-left py-2 font-medium text-gray-500">Status</th>
-                  <th className="text-left py-2 font-medium text-gray-500">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {documents.map((doc) => (
-                  <tr key={doc.id} className="border-b border-gray-100 hover:bg-gray-50">
-                    <td className="py-2 font-medium">{doc.original_filename}</td>
-                    <td className="py-2 text-gray-500">{formatFileSize(doc.file_size_bytes)}</td>
-                    <td className="py-2 text-gray-500">{doc.mime_type}</td>
-                    <td className="py-2">
-                      <StatusBadge status={doc.processing_status} />
-                    </td>
-                    <td className="py-2">
-                      <Link
-                        to={`/documents/${doc.id}`}
-                        className="text-primary-600 hover:text-primary-700 text-xs font-medium"
-                      >
-                        Details
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
     </div>
   );
 }
 
-function HealthCard({ title, status }: { title: string; status: boolean }) {
+function StatCard({ label, value, color }: { label: string; value: number; color: string }) {
+  const colorMap: Record<string, string> = {
+    blue: 'bg-blue-50 text-blue-700 border-blue-200',
+    green: 'bg-green-50 text-green-700 border-green-200',
+    red: 'bg-red-50 text-red-700 border-red-200',
+    indigo: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+    purple: 'bg-purple-50 text-purple-700 border-purple-200',
+  };
   return (
-    <div className="card flex items-center gap-3">
-      <div
-        className={`w-3 h-3 rounded-full ${status ? 'bg-green-500' : 'bg-red-500'}`}
-      />
-      <div>
-        <p className="text-sm font-medium text-gray-900">{title}</p>
-        <p className={`text-xs ${status ? 'text-green-600' : 'text-red-600'}`}>
-          {status ? 'Healthy' : 'Unavailable'}
-        </p>
-      </div>
+    <div className={`rounded-xl border p-4 ${colorMap[color] || colorMap.blue}`}>
+      <p className="text-3xl font-bold">{value}</p>
+      <p className="text-sm mt-1 opacity-80">{label}</p>
     </div>
   );
-}
-
-function formatFileSize(bytes: number): string {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }

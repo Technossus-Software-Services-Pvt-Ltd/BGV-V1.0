@@ -8,6 +8,7 @@ from app.db.session import engine
 from app.db.base import Base
 from app.api.routes import upload, documents, candidates, processing, health, batch
 from app.api.routes import settings as settings_routes
+from app.api.routes import dashboard
 
 
 @asynccontextmanager
@@ -41,3 +42,4 @@ app.include_router(candidates.router, prefix="/api/v1", tags=["Candidates"])
 app.include_router(processing.router, prefix="/api/v1", tags=["Processing"])
 app.include_router(batch.router, prefix="/api/v1", tags=["Batch"])
 app.include_router(settings_routes.router, prefix="/api/v1", tags=["Settings"])
+app.include_router(dashboard.router, prefix="/api/v1", tags=["Dashboard"])

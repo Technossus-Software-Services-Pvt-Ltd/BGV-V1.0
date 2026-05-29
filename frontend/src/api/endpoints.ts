@@ -195,3 +195,28 @@ export async function updateDriveConfig(
   const response = await api.put('/settings/integrations/drive/config', data);
   return response.data;
 }
+
+// === Dashboard ===
+
+export interface DashboardStats {
+  summary: {
+    total_documents: number;
+    completed_documents: number;
+    failed_documents: number;
+    skipped_documents: number;
+    in_progress_documents: number;
+    total_batches: number;
+    total_candidates: number;
+  };
+  document_status: { status: string; count: number }[];
+  batch_status: { status: string; count: number }[];
+  ownership_verification: { status: string; count: number }[];
+  daily_documents: { date: string; count: number }[];
+  daily_batches: { date: string; count: number }[];
+  document_types: { type: string; count: number }[];
+}
+
+export async function getDashboardStats(): Promise<DashboardStats> {
+  const response = await api.get('/dashboard/stats');
+  return response.data;
+}
