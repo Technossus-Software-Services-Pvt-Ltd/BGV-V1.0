@@ -340,7 +340,11 @@ export default function UploadPage() {
                         setBatchLogs([]);
                         eventSourceRef.current?.close();
                       }}
-                      className="px-3 py-2 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-lg"
+                      className={`px-3 py-2 text-sm rounded-lg font-medium ${
+                        ['completed', 'completed_with_errors', 'failed'].includes(activeBatch.status)
+                          ? 'bg-green-600 text-white hover:bg-green-700'
+                          : 'text-gray-600 hover:text-gray-900 border border-gray-300'
+                      }`}
                     >
                       New Import
                     </button>
