@@ -110,9 +110,27 @@ class OwnershipValidator:
         # Step 9: Name matching (Weight: 50)
         name_score_normalized = 0.0
         name_result: Optional[NameMatchResult] = None
+        fallback_used = False
+
         if extracted_name and candidate_name:
             name_result = self.name_matcher.match(candidate_name, extracted_name)
             name_score_normalized = name_result.score / 100.0  # Normalize to 0-1
+
+            # === FALLBACK: If direct match fails, search candidate name in full OCR text ===
+            # Handles cases like "Dr. Vishwanath Karad" where AI extracted a different/extended
+            # name but the candidate's actual name tokens exist in the OCR text.
+            if name_result.score < THRESHOLD_PARTIAL and ocr_text and candidate_name:
+                fallback_result = self.name_matcher.match(candidate_name, ocr_text)
+                if fallback_result.score > name_result.score:
+                    logger.info(
+                        "ownership_fallback_triggered",
+                        original_score=f"{name_result.score:.1f}",
+                        fallback_score=f"{fallback_result.score:.1f}",
+                        candidate_name=candidate_name,
+                    )
+                    name_result = fallback_result
+                    name_score_normalized = name_result.score / 100.0
+                    fallback_used = True
 
             if name_result.level == MatchLevel.NONE:
                 mismatches.append(f"Name mismatch: candidate='{candidate_name}', document='{extracted_name}' (score: {name_result.score:.1f})")
@@ -122,8 +140,22 @@ class OwnershipValidator:
             # Safety: never auto-match on single token or surname only
             if name_result.total_tokens >= 2 and name_result.matched_tokens <= 1 and name_result.score >= THRESHOLD_MATCHED:
                 manual_review_reasons.append("Only single name token matched from multi-token name")
+        elif not extracted_name and ocr_text and candidate_name:
+            # No name extracted by AI — try matching candidate name directly against OCR text
+            name_result = self.name_matcher.match(candidate_name, ocr_text)
+            name_score_normalized = name_result.score / 100.0
+            fallback_used = True
+
+            if name_result.level == MatchLevel.NONE:
+                mismatches.append(f"Name mismatch (OCR fallback): candidate='{candidate_name}' not found in OCR text (score: {name_result.score:.1f})")
+            elif name_result.level in (MatchLevel.WEAK, MatchLevel.PARTIAL):
+                mismatches.append(f"Name partial (OCR fallback): candidate='{candidate_name}' (score: {name_result.score:.1f})")
+
+            # Safety for fallback matches
+            if name_result.total_tokens >= 2 and name_result.matched_tokens <= 1 and name_result.score >= THRESHOLD_MATCHED:
+                manual_review_reasons.append("Only single name token matched from multi-token name (OCR fallback)")
         elif not extracted_name:
-            # No name extracted - can't validate, reduce score
+            # No name extracted and no OCR text - can't validate
             name_score_normalized = 0.0
 
         # DOB matching (stored for data, NOT used in scoring)
@@ -137,7 +169,7 @@ class OwnershipValidator:
             gender_result = self.gender_matcher.match(candidate_gender, extracted_gender or ocr_text)
 
         # Weighted scoring (Name only)
-        name_weight = WEIGHT_NAME if (extracted_name and candidate_name) else 0
+        name_weight = WEIGHT_NAME if (name_result and name_result.score > 0) else 0
         total_weight = name_weight
 
         if total_weight == 0:
@@ -175,7 +207,8 @@ class OwnershipValidator:
 
         reasoning = (
             f"Ownership score: {ownership_score:.1f}/100 "
-            f"(Name: {name_score_normalized * 100:.1f})"
+            f"(Name: {name_score_normalized * 100:.1f}"
+            f"{', via OCR fallback' if fallback_used else ''})"
         )
 
         logger.info(

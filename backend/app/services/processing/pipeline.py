@@ -419,11 +419,6 @@ class ProcessingPipeline:
         if not candidate:
             return
 
-        extracted_name = classification.extracted_name if classification else None
-        extracted_dob = classification.extracted_dob if classification else None
-        extracted_id = classification.extracted_id_number if classification else None
-        doc_type = classification.document_type if classification else "unknown"
-
         # Get full OCR text for this document
         ocr_results = await self.db.execute(
             select(OCRResult).where(OCRResult.document_id == document.id)
@@ -435,27 +430,94 @@ class ProcessingPipeline:
             / len(ocr_records) if ocr_records else 0.0
         )
 
-        # Extract gender from classification
-        extracted_gender = None
-        if classification and classification.extracted_gender:
-            extracted_gender = classification.extracted_gender
-        elif classification and classification.extracted_fields_json:
-            try:
-                fields = json.loads(classification.extracted_fields_json)
-                extracted_gender = fields.get("extracted_gender")
-            except (json.JSONDecodeError, TypeError):
-                pass
+        # === BEST-MATCH STRATEGY ===
+        # Query ALL classifications for this document (per-page + full-doc).
+        # Validate ownership against each classification that has an extracted_name.
+        # Use the result with the highest ownership score.
+        all_classifications_result = await self.db.execute(
+            select(AIClassification).where(
+                AIClassification.document_id == document.id
+            ).order_by(AIClassification.confidence_score.desc())
+        )
+        all_classifications = all_classifications_result.scalars().all()
 
-        validation_result = self.ownership_validator.validate(
-            candidate_name=candidate.name,
-            candidate_dob=candidate.dob,
-            candidate_gender=candidate.gender,
-            extracted_name=extracted_name,
-            extracted_dob=extracted_dob,
-            extracted_gender=extracted_gender,
-            ocr_text=combined_ocr_text,
-            document_type=doc_type,
-            ocr_confidence=avg_confidence,
+        # Collect candidates for validation: classifications with extracted_name
+        classifications_with_name = [
+            c for c in all_classifications if c.extracted_name
+        ]
+
+        # If no classification has extracted_name, fall back to the full-doc classification
+        if not classifications_with_name and classification:
+            classifications_with_name = [classification]
+
+        best_result = None
+        best_score = -1.0
+        best_classification = None
+
+        for cls in classifications_with_name:
+            extracted_name = cls.extracted_name
+            extracted_dob = cls.extracted_dob
+            doc_type = cls.document_type or "unknown"
+
+            # Extract gender
+            extracted_gender = None
+            if cls.extracted_gender:
+                extracted_gender = cls.extracted_gender
+            elif cls.extracted_fields_json:
+                try:
+                    fields = json.loads(cls.extracted_fields_json)
+                    extracted_gender = fields.get("extracted_gender")
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            vr = self.ownership_validator.validate(
+                candidate_name=candidate.name,
+                candidate_dob=candidate.dob,
+                candidate_gender=candidate.gender,
+                extracted_name=extracted_name,
+                extracted_dob=extracted_dob,
+                extracted_gender=extracted_gender,
+                ocr_text=combined_ocr_text,
+                document_type=doc_type,
+                ocr_confidence=avg_confidence,
+            )
+
+            if vr.ownership_score > best_score:
+                best_score = vr.ownership_score
+                best_result = vr
+                best_classification = cls
+
+        # If no classifications at all, run validation with no extracted data
+        if best_result is None:
+            doc_type = classification.document_type if classification else "unknown"
+            best_result = self.ownership_validator.validate(
+                candidate_name=candidate.name,
+                candidate_dob=candidate.dob,
+                candidate_gender=candidate.gender,
+                extracted_name=None,
+                extracted_dob=None,
+                extracted_gender=None,
+                ocr_text=combined_ocr_text,
+                document_type=doc_type,
+                ocr_confidence=avg_confidence,
+            )
+            best_classification = classification
+
+        # If multi-person detected and only partial match, require manual review
+        if best_result.multi_person_detected and not best_result.ownership_confirmed:
+            best_result.requires_manual_review = True
+            if "Multi-person document with partial match" not in best_result.manual_review_reasons:
+                best_result.manual_review_reasons.append("Multi-person document with partial match")
+
+        validation_result = best_result
+
+        logger.info(
+            "ownership_best_match",
+            document_id=document.id,
+            classifications_checked=len(classifications_with_name),
+            best_score=f"{validation_result.ownership_score:.1f}",
+            best_source="page" if (best_classification and best_classification.page_id) else "full_doc",
+            confirmed=validation_result.ownership_confirmed,
         )
 
         validation_record = ValidationResult(
@@ -496,6 +558,8 @@ class ProcessingPipeline:
                 "name_score": validation_result.name_match_score,
                 "ownership_score": validation_result.ownership_score,
                 "ownership_confirmed": validation_result.ownership_confirmed,
+                "classifications_checked": len(classifications_with_name),
+                "best_source_page_id": best_classification.page_id if best_classification else None,
             },
         )
 
