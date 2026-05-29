@@ -17,6 +17,10 @@ class DocumentResponse(BaseModel):
     correlation_id: str
     created_at: datetime
     updated_at: datetime
+    # Ownership verification (populated from validation result)
+    validation_status: Optional[str] = None
+    ownership_confirmed: Optional[bool] = None
+    validated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

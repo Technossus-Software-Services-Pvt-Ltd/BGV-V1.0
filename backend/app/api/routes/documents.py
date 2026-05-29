@@ -39,7 +39,31 @@ async def list_documents(
     query = query.offset(skip).limit(limit)
     result = await db.execute(query)
     documents = result.scalars().all()
-    return documents
+
+    # Enrich with validation data
+    doc_ids = [doc.id for doc in documents]
+    responses = []
+    if doc_ids:
+        val_result = await db.execute(
+            select(ValidationResult).where(ValidationResult.document_id.in_(doc_ids))
+        )
+        validations = val_result.scalars().all()
+        val_map = {}
+        for v in validations:
+            # Keep the best (highest score) validation per document
+            if v.document_id not in val_map or (v.ownership_score or 0) > (val_map[v.document_id].ownership_score or 0):
+                val_map[v.document_id] = v
+
+    for doc in documents:
+        resp = DocumentResponse.model_validate(doc)
+        val = val_map.get(doc.id) if doc_ids else None
+        if val:
+            resp.validation_status = val.validation_status
+            resp.ownership_confirmed = val.ownership_confirmed
+            resp.validated_at = val.created_at
+        responses.append(resp)
+
+    return responses
 
 
 @router.get("/documents/{document_id}", response_model=DocumentDetailResponse)
