@@ -8,6 +8,7 @@ from app.models.document import Document, DocumentPage
 from app.models.ocr_result import OCRResult
 from app.models.classification import AIClassification
 from app.models.validation_result import ValidationResult
+from app.models.candidate import Candidate
 from app.schemas.document import (
     DocumentResponse,
     DocumentDetailResponse,
@@ -52,6 +53,14 @@ async def get_document_detail(
     if not document:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
 
+    # Get candidate name
+    candidate_name = None
+    if document.candidate_id:
+        cand_result = await db.execute(select(Candidate).where(Candidate.id == document.candidate_id))
+        candidate = cand_result.scalar_one_or_none()
+        if candidate:
+            candidate_name = candidate.name
+
     # Get pages
     pages_result = await db.execute(
         select(DocumentPage).where(DocumentPage.document_id == document_id).order_by(DocumentPage.page_number)
@@ -78,6 +87,7 @@ async def get_document_detail(
 
     return DocumentDetailResponse(
         document=document,
+        candidate_name=candidate_name,
         pages=pages,
         ocr_results=ocr_results,
         classifications=classifications,

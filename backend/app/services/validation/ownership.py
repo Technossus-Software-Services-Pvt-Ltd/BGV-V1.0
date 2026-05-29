@@ -12,10 +12,8 @@ from app.core.logging import get_logger
 
 logger = get_logger("validation.ownership")
 
-# Scoring weights per spec (Step 12)
-WEIGHT_NAME = 50
-WEIGHT_DOB = 35
-WEIGHT_GENDER = 15
+# Scoring weights (only Name determines ownership)
+WEIGHT_NAME = 100
 
 # Thresholds per spec (Step 12)
 THRESHOLD_MATCHED = 85
@@ -128,49 +126,31 @@ class OwnershipValidator:
             # No name extracted - can't validate, reduce score
             name_score_normalized = 0.0
 
-        # Step 10: DOB matching (Weight: 35)
-        dob_score_normalized = 0.0
+        # DOB matching (stored for data, NOT used in scoring)
         dob_result: Optional[DOBMatchResult] = None
         if candidate_dob and ocr_text:
             dob_result = self.dob_matcher.match(candidate_dob, extracted_dob or ocr_text)
-            dob_score_normalized = dob_result.score
 
-            if not dob_result.matched and not dob_result.partial:
-                if extracted_dob:
-                    mismatches.append(f"DOB mismatch: candidate='{candidate_dob}', document='{extracted_dob}'")
-
-        # Step 11: Gender matching (Weight: 15)
-        gender_score_normalized = 0.0
+        # Gender matching (stored for data, NOT used in scoring)
         gender_result: Optional[GenderMatchResult] = None
         if candidate_gender and ocr_text:
             gender_result = self.gender_matcher.match(candidate_gender, extracted_gender or ocr_text)
-            gender_score_normalized = gender_result.score
 
-            if not gender_result.matched and gender_result.extracted_gender:
-                mismatches.append(f"Gender mismatch: candidate='{gender_result.candidate_gender}', document='{gender_result.extracted_gender}'")
-
-        # Step 12: Weighted scoring
-        # Calculate which validations could be performed
+        # Weighted scoring (Name only)
         name_weight = WEIGHT_NAME if (extracted_name and candidate_name) else 0
-        dob_weight = WEIGHT_DOB if candidate_dob else 0
-        gender_weight = WEIGHT_GENDER if candidate_gender else 0
-        total_weight = name_weight + dob_weight + gender_weight
+        total_weight = name_weight
 
         if total_weight == 0:
             duration_ms = int((time.time() - start_time) * 1000)
             logger.info("validation_not_applicable", reason="no_validation_data", duration_ms=duration_ms)
             return OwnershipValidationResult(
                 validation_status=ValidationStatus.NOT_APPLICABLE.value,
-                reasoning="No ownership data could be validated (no name/DOB/gender provided or extracted)",
+                reasoning="No ownership data could be validated (no name provided or extracted)",
                 processing_duration_ms=duration_ms,
             )
 
         # Compute weighted score scaled to available weights
-        raw_score = (
-            (name_score_normalized * name_weight)
-            + (dob_score_normalized * dob_weight)
-            + (gender_score_normalized * gender_weight)
-        )
+        raw_score = name_score_normalized * name_weight
         # Scale to 100 based on available weights
         ownership_score = (raw_score / total_weight) * 100
 
@@ -189,58 +169,13 @@ class OwnershipValidator:
             confidence = "LOW"
             confirmed = False
 
-        print(f"[DEBUG] After Step 14: status={status}, confirmed={confirmed}, ownership_score={ownership_score}")
-        print(f"[DEBUG] name_result: score={name_result.score if name_result else None}, matched_tokens={name_result.matched_tokens if name_result else None}, total_tokens={name_result.total_tokens if name_result else None}")
-        print(f"[DEBUG] THRESHOLD_EXACT={self.name_matcher.THRESHOLD_EXACT}")
-
-        # Step 17: Safety overrides — never auto-match on these
-        if confirmed:
-            # Never auto-match on logo only / single surname
-            # But skip this override if full-string matching already confirmed a strong match (score >= 90)
-            if (name_result and name_result.total_tokens >= 2 and name_result.matched_tokens < 1.5
-                    and name_result.score < self.name_matcher.THRESHOLD_EXACT):
-                print(f"[DEBUG] OVERRIDE FIRED: token coverage. matched_tokens={name_result.matched_tokens}, score={name_result.score}")
-                status = ValidationStatus.PARTIAL_MATCH.value
-                confidence = "MEDIUM"
-                confirmed = False
-                manual_review_reasons.append("Insufficient name token coverage for auto-match")
-
-            # Never ignore DOB conflict
-            if dob_result and not dob_result.matched and not dob_result.partial and candidate_dob and extracted_dob:
-                print(f"[DEBUG] OVERRIDE FIRED: DOB conflict")
-                status = ValidationStatus.PARTIAL_MATCH.value
-                confidence = "MEDIUM"
-                confirmed = False
-                manual_review_reasons.append("DOB conflict detected")
-
-            # Never ignore gender mismatch
-            if gender_result and not gender_result.matched and gender_result.extracted_gender:
-                print(f"[DEBUG] OVERRIDE FIRED: Gender mismatch")
-                status = ValidationStatus.PARTIAL_MATCH.value
-                confidence = "MEDIUM"
-                confirmed = False
-                manual_review_reasons.append("Gender mismatch detected")
-
-        # Multi-person override
-        if multi_person:
-            print(f"[DEBUG] OVERRIDE FIRED: Multi-person detected")
-            if status == ValidationStatus.MATCHED.value:
-                status = ValidationStatus.PARTIAL_MATCH.value
-                confidence = "MEDIUM"
-                confirmed = False
-            manual_review_reasons.append("Multiple identities detected - manual review required")
-
-        print(f"[DEBUG] FINAL: status={status}, confirmed={confirmed}, requires_review={len(manual_review_reasons) > 0}, reasons={manual_review_reasons}")
-
         requires_review = len(manual_review_reasons) > 0
 
         duration_ms = int((time.time() - start_time) * 1000)
 
         reasoning = (
             f"Ownership score: {ownership_score:.1f}/100 "
-            f"(Name: {name_score_normalized * 100:.1f}*{name_weight}/{total_weight}, "
-            f"DOB: {dob_score_normalized * 100:.1f}*{dob_weight}/{total_weight}, "
-            f"Gender: {gender_score_normalized * 100:.1f}*{gender_weight}/{total_weight})"
+            f"(Name: {name_score_normalized * 100:.1f})"
         )
 
         logger.info(

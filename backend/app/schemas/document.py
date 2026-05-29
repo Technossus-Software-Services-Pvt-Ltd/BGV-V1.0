@@ -91,6 +91,7 @@ class ValidationResultResponse(BaseModel):
 
 class DocumentDetailResponse(BaseModel):
     document: DocumentResponse
+    candidate_name: Optional[str] = None
     pages: List[DocumentPageResponse]
     ocr_results: List[OCRResultResponse]
     classifications: List[ClassificationResponse]

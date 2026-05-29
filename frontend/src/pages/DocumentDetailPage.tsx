@@ -77,6 +77,8 @@ export default function DocumentDetailPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">{doc.original_filename}</h1>
           <p className="text-sm text-gray-500 mt-0.5">
+            {detail.candidate_name && <span className="font-medium text-gray-700">{detail.candidate_name}</span>}
+            {detail.candidate_name && ' · '}
             Correlation: {doc.correlation_id}
           </p>
         </div>

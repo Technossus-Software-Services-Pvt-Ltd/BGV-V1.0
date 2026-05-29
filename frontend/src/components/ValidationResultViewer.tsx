@@ -34,10 +34,8 @@ export default function ValidationResultViewer({ results }: ValidationResultView
               </span>
             </div>
 
-            <div className="grid grid-cols-3 gap-4 mb-3">
+            <div className="grid grid-cols-1 gap-4 mb-3">
               <CheckItem label="Name Match" passed={result.name_match ?? false} score={result.name_match_score ?? undefined} />
-              <CheckItem label="DOB Match" passed={result.dob_match ?? false} />
-              <CheckItem label="ID Match" passed={result.id_number_match ?? false} />
             </div>
 
             {result.validation_reasoning && (

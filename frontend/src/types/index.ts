@@ -43,6 +43,7 @@ export interface DocumentListItem {
 
 export interface DocumentDetail {
   document: DocumentListItem;
+  candidate_name: string | null;
   pages: DocumentPage[];
   ocr_results: OCRResult[];
   classifications: Classification[];
