@@ -105,6 +105,9 @@ export async function startBatchProcessing(batchId: string): Promise<BatchImport
 export async function listBatchImports(params?: {
   skip?: number;
   limit?: number;
+  status?: string;
+  date_from?: string;
+  date_to?: string;
 }): Promise<BatchImport[]> {
   const response = await api.get('/batch', { params });
   return response.data;
@@ -136,6 +139,25 @@ export async function retryBatchCandidate(
 export function createBatchLogStream(batchId: string): EventSource {
   const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api/v1';
   return new EventSource(`${baseUrl}/batch/${batchId}/logs`);
+}
+
+export interface BatchLogItem {
+  id: string;
+  batch_import_id: string;
+  batch_candidate_id: string | null;
+  level: string;
+  stage: string;
+  message: string;
+  details: string | null;
+  created_at: string;
+}
+
+export async function getBatchLogs(
+  batchId: string,
+  params?: { candidate_id?: string; level?: string },
+): Promise<BatchLogItem[]> {
+  const response = await api.get(`/batch/${batchId}/logs/all`, { params });
+  return response.data;
 }
 
 // === Settings / Integrations ===
