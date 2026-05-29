@@ -167,3 +167,94 @@ export interface AuditLogEntry {
   duration_ms: number | null;
   created_at: string;
 }
+
+// === Batch Processing Types ===
+
+export interface BatchUploadResponse {
+  batch_id: string;
+  batch_code: string;
+  total_candidates: number;
+  correlation_id: string;
+  message: string;
+}
+
+export interface BatchImport {
+  id: string;
+  batch_code: string;
+  original_filename: string;
+  status: string;
+  total_candidates: number;
+  processed_candidates: number;
+  failed_candidates: number;
+  skipped_candidates: number;
+  total_documents_found: number;
+  total_documents_processed: number;
+  error_message: string | null;
+  correlation_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BatchCandidate {
+  id: string;
+  batch_import_id: string;
+  candidate_id: string | null;
+  row_number: number;
+  source_candidate_id: string;
+  source_name: string;
+  source_email: string | null;
+  source_phone: string | null;
+  source_dob: string | null;
+  source_gender: string | null;
+  status: string;
+  documents_found: number;
+  documents_processed: number;
+  documents_failed: number;
+  gmail_emails_found: number;
+  drive_files_found: number;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BatchDetail {
+  batch: BatchImport;
+  candidates: BatchCandidate[];
+}
+
+export interface BatchLogEntry {
+  id: string;
+  level: string;
+  stage: string;
+  message: string;
+  details: string | null;
+  batch_candidate_id: string | null;
+  created_at: string;
+  type?: string;
+  status?: string;
+}
+
+export interface IntegrationConfig {
+  id: string;
+  provider: string;
+  is_enabled: boolean;
+  has_credentials: boolean;
+  config_json: string | null;
+  last_validated_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GmailStatus {
+  connected: boolean;
+  has_client_config: boolean;
+  email: string | null;
+  scopes: string[];
+  is_enabled: boolean;
+  last_validated_at: string | null;
+}
+
+export interface DriveConfig {
+  search_folder_ids: string[];
+  storage_root_folder_id: string | null;
+}

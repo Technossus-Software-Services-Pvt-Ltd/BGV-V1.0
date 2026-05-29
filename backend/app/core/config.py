@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     secret_key: str = "change-this-to-a-secure-random-string-in-production"
     cors_origins: str = "http://localhost:3000,http://localhost:5173"
 
+    # Google OAuth2 (from Google Cloud Console > OAuth 2.0 Client ID)
+    google_client_id: str = ""
+    google_client_secret: str = ""
+
     # Processing
     max_concurrent_ocr: int = 2
     max_concurrent_ai: int = 1

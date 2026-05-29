@@ -1,5 +1,21 @@
 import api from './client';
-import { UploadResponse, DocumentListItem, DocumentDetail, CandidateResponse, ProcessingTimeline, AuditLogEntry, HealthStatus, BatchInfo } from '../types';
+import {
+  UploadResponse,
+  DocumentListItem,
+  DocumentDetail,
+  CandidateResponse,
+  ProcessingTimeline,
+  AuditLogEntry,
+  HealthStatus,
+  BatchInfo,
+  BatchUploadResponse,
+  BatchImport,
+  BatchDetail,
+  BatchCandidate,
+  IntegrationConfig,
+  GmailStatus,
+  DriveConfig,
+} from '../types';
 
 export async function checkHealth(): Promise<HealthStatus> {
   const response = await api.get('/health');
@@ -69,5 +85,113 @@ export async function getAuditLogs(params?: {
   limit?: number;
 }): Promise<AuditLogEntry[]> {
   const response = await api.get('/audit/logs', { params });
+  return response.data;
+}
+
+// === Batch Processing ===
+
+export async function uploadBatchFile(formData: FormData): Promise<BatchUploadResponse> {
+  const response = await api.post('/batch/upload', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return response.data;
+}
+
+export async function startBatchProcessing(batchId: string): Promise<BatchImport> {
+  const response = await api.post(`/batch/${batchId}/start`);
+  return response.data;
+}
+
+export async function listBatchImports(params?: {
+  skip?: number;
+  limit?: number;
+}): Promise<BatchImport[]> {
+  const response = await api.get('/batch', { params });
+  return response.data;
+}
+
+export async function getBatchDetail(batchId: string): Promise<BatchDetail> {
+  const response = await api.get(`/batch/${batchId}`);
+  return response.data;
+}
+
+export async function listBatchCandidates(
+  batchId: string,
+  statusFilter?: string,
+): Promise<BatchCandidate[]> {
+  const response = await api.get(`/batch/${batchId}/candidates`, {
+    params: statusFilter ? { status_filter: statusFilter } : undefined,
+  });
+  return response.data;
+}
+
+export async function retryBatchCandidate(
+  batchId: string,
+  candidateId: string,
+): Promise<BatchCandidate> {
+  const response = await api.post(`/batch/${batchId}/candidates/${candidateId}/retry`);
+  return response.data;
+}
+
+export function createBatchLogStream(batchId: string): EventSource {
+  const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+  return new EventSource(`${baseUrl}/batch/${batchId}/logs`);
+}
+
+// === Settings / Integrations ===
+
+export async function listIntegrations(): Promise<IntegrationConfig[]> {
+  const response = await api.get('/settings/integrations');
+  return response.data;
+}
+
+export async function getIntegration(provider: string): Promise<IntegrationConfig> {
+  const response = await api.get(`/settings/integrations/${provider}`);
+  return response.data;
+}
+
+export async function updateIntegration(
+  provider: string,
+  data: { is_enabled?: boolean; credentials_json?: string; config_json?: string },
+): Promise<IntegrationConfig> {
+  const response = await api.put(`/settings/integrations/${provider}`, data);
+  return response.data;
+}
+
+export async function validateIntegration(
+  provider: string,
+): Promise<{ status: string; message: string }> {
+  const response = await api.post(`/settings/integrations/${provider}/validate`);
+  return response.data;
+}
+
+// === Gmail OAuth2 ===
+
+export async function getGmailAuthUrl(): Promise<{ auth_url: string }> {
+  const response = await api.get('/settings/integrations/gmail/auth-url');
+  return response.data;
+}
+
+export async function disconnectGmail(): Promise<{ status: string; message: string }> {
+  const response = await api.post('/settings/integrations/gmail/disconnect');
+  return response.data;
+}
+
+export async function getGmailStatus(): Promise<GmailStatus> {
+  const response = await api.get('/settings/integrations/gmail/status');
+  return response.data;
+}
+
+// === Drive Config ===
+
+export async function getDriveConfig(): Promise<DriveConfig> {
+  const response = await api.get('/settings/integrations/drive/config');
+  return response.data;
+}
+
+export async function updateDriveConfig(
+  data: { search_folder_ids: string[]; storage_root_folder_id: string | null },
+): Promise<{ status: string; message: string }> {
+  const response = await api.put('/settings/integrations/drive/config', data);
   return response.data;
 }
