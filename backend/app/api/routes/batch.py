@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status, BackgroundTasks, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, func
 
 from app.db.session import get_db
 from app.models.batch_import import BatchImport
@@ -55,7 +55,17 @@ async def upload_batch_file(
         raise HTTPException(status_code=400, detail="Import file must be under 10MB")
 
     correlation_id = str(uuid.uuid4())
-    batch_code = f"IMP-{uuid.uuid4().hex[:8].upper()}"
+
+    # Generate batch code: BGV_YYYYMMDD001 (incremental per day)
+    today_str = datetime.now(timezone.utc).strftime("%Y%m%d")
+    prefix = f"BGV_{today_str}"
+    count_result = await db.execute(
+        select(func.count()).select_from(BatchImport).where(
+            BatchImport.batch_code.like(f"{prefix}%")
+        )
+    )
+    seq = (count_result.scalar() or 0) + 1
+    batch_code = f"{prefix}{seq:03d}"
 
     stored_name = f"{uuid.uuid4().hex}{ext}"
     file_dir = settings.upload_path / "batch_imports"
