@@ -55,21 +55,15 @@ class GmailScanner:
     ) -> List[DiscoveredAttachment]:
         """Search Gmail for messages with attachments related to a candidate.
 
-        Searches by:
-        1. Emails FROM the candidate (if email provided)
-        2. Emails with candidate name in subject/body that have attachments
+        Strategy:
+        - Find emails FROM the candidate email (from Excel)
+        - Accept all supported attachments; OCR will handle document ownership verification.
         """
         attachments: List[DiscoveredAttachment] = []
-
-        queries = []
-        if candidate_email:
-            queries.append(f"from:{candidate_email} has:attachment")
-        # Search by name in subject line (quoted for exact match)
-        queries.append(f'subject:"{candidate_name}" has:attachment')
-
         seen_message_ids: set = set()
 
-        for query in queries:
+        if candidate_email:
+            query = f"from:{candidate_email} has:attachment"
             try:
                 result = (
                     self._service.users()
@@ -89,7 +83,7 @@ class GmailScanner:
                     msg = (
                         self._service.users()
                         .messages()
-                        .get(userId="me", id=msg_id, format="metadata", metadataHeaders=["Subject", "From", "Date"])
+                        .get(userId="me", id=msg_id, format="full")
                         .execute()
                     )
 
@@ -98,7 +92,6 @@ class GmailScanner:
                     sender = headers.get("From", "")
                     date = headers.get("Date", "")
 
-                    # Extract attachments from message parts
                     found = self._extract_attachments(msg_id, msg.get("payload", {}), subject, sender, date)
                     attachments.extend(found)
 
@@ -108,7 +101,7 @@ class GmailScanner:
         logger.info("gmail_scan_complete", candidate=candidate_name, total_attachments=len(attachments))
         return attachments
 
-    def _extract_attachments(
+    def _extract_attachments(  # noqa: PLR0913
         self, message_id: str, payload: dict, subject: str, sender: str, date: str
     ) -> List[DiscoveredAttachment]:
         """Recursively extract attachment metadata from message payload."""

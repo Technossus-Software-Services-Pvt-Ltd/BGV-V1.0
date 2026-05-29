@@ -340,8 +340,13 @@ class BatchOrchestrator:
 
     async def _ensure_candidate(self, bc: BatchImportCandidate, correlation_id: str) -> Candidate:
         """Get or create a Candidate record from batch candidate data."""
+        # Match by candidate_id AND name to avoid merging different candidates
+        # that happen to share the same candidate_id in different batches.
         result = await self.db.execute(
-            select(Candidate).where(Candidate.candidate_id == bc.source_candidate_id)
+            select(Candidate).where(
+                Candidate.candidate_id == bc.source_candidate_id,
+                Candidate.name == bc.source_name,
+            )
         )
         candidate = result.scalar_one_or_none()
 
