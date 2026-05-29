@@ -1,0 +1,67 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: bgv_postgres
+    environment:
+      POSTGRES_DB: bgv_db
+      POSTGRES_USER: bgv_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bgv_secure_pass_change_me}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bgv_user -d bgv_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: bgv_ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: bgv_backend
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://bgv_user:${POSTGRES_PASSWORD:-bgv_secure_pass_change_me}@postgres:5432/bgv_db
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - UPLOAD_DIR=/app/uploads
+      - LOG_LEVEL=INFO
+      - ENVIRONMENT=production
+    ports:
+      - "8000:8000"
+    volumes:
+      - upload_data:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: bgv_frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
+  ollama_data:
+  upload_data:

@@ -1,0 +1,138 @@
+import time
+import httpx
+from typing import Optional
+
+from app.core.config import settings
+from app.core.logging import get_logger
+from app.core.exceptions import OllamaConnectionError
+
+logger = get_logger("ai.ollama")
+
+
+class OllamaResponse:
+    def __init__(
+        self,
+        content: str,
+        model: str,
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
+        duration_ms: int = 0,
+        error: Optional[str] = None,
+    ):
+        self.content = content
+        self.model = model
+        self.prompt_tokens = prompt_tokens
+        self.completion_tokens = completion_tokens
+        self.duration_ms = duration_ms
+        self.error = error
+
+    @property
+    def is_successful(self) -> bool:
+        return self.error is None and len(self.content.strip()) > 0
+
+
+class OllamaClient:
+    """Client for communicating with local Ollama instance."""
+
+    def __init__(self):
+        self.base_url = settings.ollama_base_url
+        self.model = settings.ollama_model
+        self.timeout = settings.ai_timeout_seconds
+
+    async def generate(self, prompt: str, temperature: float = 0.1) -> OllamaResponse:
+        start_time = time.time()
+        url = f"{self.base_url}/api/generate"
+
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "temperature": temperature,
+                "num_predict": 1024,
+                "top_p": 0.9,
+                "num_ctx": 4096,
+            },
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(url, json=payload)
+                response.raise_for_status()
+                data = response.json()
+
+            duration_ms = int((time.time() - start_time) * 1000)
+
+            return OllamaResponse(
+                content=data.get("response", ""),
+                model=data.get("model", self.model),
+                prompt_tokens=data.get("prompt_eval_count", 0),
+                completion_tokens=data.get("eval_count", 0),
+                duration_ms=duration_ms,
+            )
+
+        except httpx.ConnectError as e:
+            duration_ms = int((time.time() - start_time) * 1000)
+            error_msg = f"Cannot connect to Ollama at {self.base_url}. Ensure Ollama is running."
+            logger.error("ollama_connection_failed", error=str(e), url=self.base_url)
+            return OllamaResponse(
+                content="",
+                model=self.model,
+                duration_ms=duration_ms,
+                error=error_msg,
+            )
+
+        except httpx.TimeoutException:
+            duration_ms = int((time.time() - start_time) * 1000)
+            error_msg = f"Ollama request timed out after {self.timeout}s"
+            logger.error("ollama_timeout", timeout=self.timeout)
+            return OllamaResponse(
+                content="",
+                model=self.model,
+                duration_ms=duration_ms,
+                error=error_msg,
+            )
+
+        except httpx.HTTPStatusError as e:
+            duration_ms = int((time.time() - start_time) * 1000)
+            error_msg = f"Ollama returned HTTP {e.response.status_code}: {e.response.text[:200]}"
+            logger.error("ollama_http_error", status=e.response.status_code)
+            return OllamaResponse(
+                content="",
+                model=self.model,
+                duration_ms=duration_ms,
+                error=error_msg,
+            )
+
+        except Exception as e:
+            duration_ms = int((time.time() - start_time) * 1000)
+            error_msg = f"Unexpected Ollama error: {str(e)}"
+            logger.error("ollama_unexpected_error", error=str(e))
+            return OllamaResponse(
+                content="",
+                model=self.model,
+                duration_ms=duration_ms,
+                error=error_msg,
+            )
+
+    async def check_health(self) -> bool:
+        try:
+            async with httpx.AsyncClient(timeout=5) as client:
+                response = await client.get(f"{self.base_url}/api/tags")
+                return response.status_code == 200
+        except Exception:
+            return False
+
+    async def ensure_model_available(self) -> bool:
+        try:
+            async with httpx.AsyncClient(timeout=5) as client:
+                response = await client.get(f"{self.base_url}/api/tags")
+                if response.status_code != 200:
+                    return False
+                data = response.json()
+                models = [m["name"] for m in data.get("models", [])]
+                # Check if model is available (with or without tag)
+                model_base = self.model.split(":")[0]
+                return any(model_base in m for m in models)
+        except Exception:
+            return False
