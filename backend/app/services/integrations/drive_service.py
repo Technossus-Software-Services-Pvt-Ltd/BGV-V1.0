@@ -192,6 +192,11 @@ class GoogleDriveService:
         )
         return uploaded["id"]
 
+    def delete_folder(self, folder_id: str) -> None:
+        """Delete a folder (and its contents) from Drive."""
+        self._service.files().delete(fileId=folder_id).execute()
+        logger.info("drive_folder_deleted", folder_id=folder_id)
+
     @staticmethod
     def _escape_query(term: str) -> str:
         """Escape single quotes in Drive query strings."""

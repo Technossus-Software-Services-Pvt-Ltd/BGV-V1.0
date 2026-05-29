@@ -21,7 +21,9 @@ from app.models.enums import (
     ProcessingStatus,
     LogLevel,
     AuditAction,
+    ValidationStatus,
 )
+from app.models.validation_result import ValidationResult
 from app.services.integrations.gmail_scanner import GmailScanner, DiscoveredAttachment
 from app.services.integrations.drive_service import GoogleDriveService, DiscoveredDriveFile
 from app.services.processing.pipeline import ProcessingPipeline
@@ -269,15 +271,65 @@ class BatchOrchestrator:
                     await self._log(batch.id, bc.id, "error", "pipeline",
                                     f"{prefix}: Pipeline failed for document {doc_id}: {e}")
 
-            # Update upload batch counts
-            upload_batch.processed_files = bc.documents_processed
-            upload_batch.failed_files = bc.documents_failed
-            upload_batch.processing_status = ProcessingStatus.COMPLETED.value
+            # === OWNERSHIP VERIFICATION CHECK ===
+            # After pipeline, check if any document passed ownership validation.
+            # If all documents are UNMATCHED / not confirmed, treat as no documents found.
+            confirmed_doc_ids = []
+            for doc_id in document_ids:
+                vr = await self.db.execute(
+                    select(ValidationResult).where(
+                        ValidationResult.document_id == doc_id,
+                        ValidationResult.ownership_confirmed == True,
+                    )
+                )
+                if vr.scalar_one_or_none():
+                    confirmed_doc_ids.append(doc_id)
 
-            bc.status = BatchCandidateStatus.COMPLETED.value
-            await self._log(batch.id, bc.id, "info", "complete",
-                            f"{prefix}: Completed. {bc.documents_processed} processed, {bc.documents_failed} failed")
-            await self.db.flush()
+            unconfirmed_count = len(document_ids) - len(confirmed_doc_ids)
+            if unconfirmed_count > 0:
+                await self._log(batch.id, bc.id, "warning", "ownership",
+                                f"{prefix}: {unconfirmed_count} document(s) failed ownership verification")
+
+            if not confirmed_doc_ids:
+                # No documents passed ownership — treat as zero documents found
+                bc.documents_found = 0
+                bc.documents_processed = 0
+                bc.status = BatchCandidateStatus.NO_DOCUMENTS.value
+                await self._log(batch.id, bc.id, "warning", "ownership",
+                                f"{prefix}: Ownership not confirmed for any document. Marking as no documents found.")
+                await self.db.flush()
+            else:
+                # Upload only ownership-confirmed documents to Drive
+                if drive_service and storage_folder_id:
+                    for doc_id in confirmed_doc_ids:
+                        try:
+                            doc_result = await self.db.execute(
+                                select(Document).where(Document.id == doc_id)
+                            )
+                            doc = doc_result.scalar_one()
+                            file_bytes = Path(doc.file_path).read_bytes()
+                            drive_service.upload_file(
+                                storage_folder_id, doc.original_filename, file_bytes, doc.mime_type
+                            )
+                        except Exception as e:
+                            logger.warning("drive_upload_failed", doc_id=doc_id, error=str(e))
+
+                    await self._log(batch.id, bc.id, "info", "drive_upload",
+                                    f"{prefix}: Uploaded {len(confirmed_doc_ids)} verified document(s) to Drive")
+
+                # Update counts to reflect only confirmed documents
+                bc.documents_found = len(confirmed_doc_ids)
+                bc.documents_processed = len(confirmed_doc_ids)
+
+                # Update upload batch counts
+                upload_batch.processed_files = len(confirmed_doc_ids)
+                upload_batch.failed_files = bc.documents_failed + unconfirmed_count
+                upload_batch.processing_status = ProcessingStatus.COMPLETED.value
+
+                bc.status = BatchCandidateStatus.COMPLETED.value
+                await self._log(batch.id, bc.id, "info", "complete",
+                                f"{prefix}: Completed. {len(confirmed_doc_ids)} verified, {unconfirmed_count} rejected (ownership)")
+                await self.db.flush()
 
         except Exception as e:
             bc.status = BatchCandidateStatus.FAILED.value
@@ -319,12 +371,7 @@ class BatchOrchestrator:
         self.db.add(document)
         await self.db.flush()
 
-        # Upload to Drive storage folder
-        if drive_service and storage_folder_id:
-            try:
-                drive_service.upload_file(storage_folder_id, filename, file_bytes, mime_type)
-            except Exception as e:
-                logger.warning("drive_upload_failed", filename=filename, error=str(e))
+        # Drive upload is deferred until after ownership validation passes
 
         # Audit log
         await self.audit.log(
