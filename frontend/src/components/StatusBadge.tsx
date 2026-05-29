@@ -10,6 +10,7 @@ const statusConfig: Record<string, { color: string; label: string }> = {
   ocr_processing: { color: 'badge-warning', label: 'OCR Processing' },
   ocr_complete: { color: 'badge-info', label: 'OCR Complete' },
   ocr_failed: { color: 'badge-error', label: 'OCR Failed' },
+  skipped: { color: 'badge-neutral', label: "Can't Process Photos" },
   classifying: { color: 'badge-warning', label: 'Classifying' },
   classified: { color: 'badge-info', label: 'Classified' },
   classification_failed: { color: 'badge-error', label: 'Classification Failed' },

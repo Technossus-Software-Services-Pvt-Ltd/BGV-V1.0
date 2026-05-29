@@ -9,6 +9,7 @@ class ProcessingStatus(str, enum.Enum):
     OCR_RUNNING = "ocr_running"
     OCR_COMPLETE = "ocr_complete"
     OCR_FAILED = "ocr_failed"
+    SKIPPED = "skipped"
     AI_CLASSIFYING = "ai_classifying"
     AI_CLASSIFICATION_COMPLETE = "ai_classification_complete"
     AI_CLASSIFICATION_FAILED = "ai_classification_failed"
