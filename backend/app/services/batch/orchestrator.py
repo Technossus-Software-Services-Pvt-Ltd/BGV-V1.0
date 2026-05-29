@@ -1,4 +1,5 @@
 import json
+import shutil
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -88,6 +89,10 @@ class BatchOrchestrator:
             await self._log(batch.id, None, "info", "orchestrator",
                             f"Batch complete: {batch.processed_candidates} processed, "
                             f"{batch.failed_candidates} failed, {batch.skipped_candidates} skipped")
+
+            # Clean up local files now that batch is concluded
+            await self._cleanup_batch_local_files(batch)
+
             await self.db.commit()
 
         except Exception as e:
@@ -95,6 +100,8 @@ class BatchOrchestrator:
             batch.status = BatchImportStatus.FAILED.value
             batch.error_message = str(e)[:1000]
             await self._log(batch.id, None, "error", "orchestrator", f"Batch failed: {e}")
+            # Clean up local files even on failure
+            await self._cleanup_batch_local_files(batch)
             await self.db.commit()
 
     async def retry_candidate(self, batch_import_id: str, batch_candidate_id: str) -> None:
@@ -254,44 +261,62 @@ class BatchOrchestrator:
                     await self._log(batch.id, bc.id, "error", "download",
                                     f"{prefix}: Failed to download Drive file '{df.filename}': {e}")
 
-            # === PROCESSING PHASE ===
+            # === PROCESSING PHASE (with immediate upload after ownership validation) ===
             bc.status = BatchCandidateStatus.PROCESSING.value
             await self._log(batch.id, bc.id, "info", "pipeline",
                             f"{prefix}: Processing {len(document_ids)} documents through pipeline")
             await self.db.flush()
 
             pipeline = ProcessingPipeline(self.db)
+            confirmed_doc_ids = []
+
             for doc_id in document_ids:
                 try:
                     await pipeline.process_document(doc_id)
                     bc.documents_processed += 1
                     await self.db.flush()
+
+                    # Immediately check ownership validation result for this document
+                    vr_result = await self.db.execute(
+                        select(ValidationResult).where(
+                            ValidationResult.document_id == doc_id,
+                            ValidationResult.ownership_confirmed == True,
+                        )
+                    )
+                    if vr_result.scalar_one_or_none():
+                        confirmed_doc_ids.append(doc_id)
+                        # Upload to Drive immediately if folder exists
+                        if drive_service and storage_folder_id:
+                            try:
+                                doc_result = await self.db.execute(
+                                    select(Document).where(Document.id == doc_id)
+                                )
+                                doc = doc_result.scalar_one()
+                                file_bytes = Path(doc.file_path).read_bytes()
+                                drive_service.upload_file(
+                                    storage_folder_id, doc.original_filename, file_bytes, doc.mime_type
+                                )
+                                await self._log(batch.id, bc.id, "info", "drive_upload",
+                                                f"{prefix}: Uploaded '{doc.original_filename}' to Drive (ownership confirmed)")
+                            except Exception as e:
+                                logger.warning("drive_upload_failed", doc_id=doc_id, error=str(e))
+                                await self._log(batch.id, bc.id, "warning", "drive_upload",
+                                                f"{prefix}: Drive upload failed for document {doc_id}: {e}")
+                    else:
+                        await self._log(batch.id, bc.id, "warning", "ownership",
+                                        f"{prefix}: Document {doc_id} failed ownership verification - not uploaded")
+
                 except Exception as e:
                     bc.documents_failed += 1
                     await self._log(batch.id, bc.id, "error", "pipeline",
                                     f"{prefix}: Pipeline failed for document {doc_id}: {e}")
 
-            # === OWNERSHIP VERIFICATION CHECK ===
-            # After pipeline, check if any document passed ownership validation.
-            # If all documents are UNMATCHED / not confirmed, treat as no documents found.
-            confirmed_doc_ids = []
-            for doc_id in document_ids:
-                vr = await self.db.execute(
-                    select(ValidationResult).where(
-                        ValidationResult.document_id == doc_id,
-                        ValidationResult.ownership_confirmed == True,
-                    )
-                )
-                if vr.scalar_one_or_none():
-                    confirmed_doc_ids.append(doc_id)
-
-            unconfirmed_count = len(document_ids) - len(confirmed_doc_ids)
-            if unconfirmed_count > 0:
-                await self._log(batch.id, bc.id, "warning", "ownership",
-                                f"{prefix}: {unconfirmed_count} document(s) failed ownership verification")
+            # === POST-PROCESSING STATUS UPDATE ===
+            # unconfirmed = pipeline successes that failed ownership validation
+            # (bc.documents_processed counts pipeline successes before overwrite below)
+            unconfirmed_count = bc.documents_processed - len(confirmed_doc_ids)
 
             if not confirmed_doc_ids:
-                # No documents passed ownership — treat as zero documents found
                 bc.documents_found = 0
                 bc.documents_processed = 0
                 bc.status = BatchCandidateStatus.NO_DOCUMENTS.value
@@ -299,38 +324,17 @@ class BatchOrchestrator:
                                 f"{prefix}: Ownership not confirmed for any document. Marking as no documents found.")
                 await self.db.flush()
             else:
-                # Upload only ownership-confirmed documents to Drive
-                # Get a fresh Drive service to avoid stale connections after pipeline processing
-                if drive_service and storage_folder_id:
-                    drive_service = await self._get_drive_service() or drive_service
-                    for doc_id in confirmed_doc_ids:
-                        try:
-                            doc_result = await self.db.execute(
-                                select(Document).where(Document.id == doc_id)
-                            )
-                            doc = doc_result.scalar_one()
-                            file_bytes = Path(doc.file_path).read_bytes()
-                            drive_service.upload_file(
-                                storage_folder_id, doc.original_filename, file_bytes, doc.mime_type
-                            )
-                        except Exception as e:
-                            logger.warning("drive_upload_failed", doc_id=doc_id, error=str(e))
-
-                    await self._log(batch.id, bc.id, "info", "drive_upload",
-                                    f"{prefix}: Uploaded {len(confirmed_doc_ids)} verified document(s) to Drive")
-
-                # Update counts to reflect only confirmed documents
                 bc.documents_found = len(confirmed_doc_ids)
                 bc.documents_processed = len(confirmed_doc_ids)
 
-                # Update upload batch counts
                 upload_batch.processed_files = len(confirmed_doc_ids)
                 upload_batch.failed_files = bc.documents_failed + unconfirmed_count
                 upload_batch.processing_status = ProcessingStatus.COMPLETED.value
 
                 bc.status = BatchCandidateStatus.COMPLETED.value
                 await self._log(batch.id, bc.id, "info", "complete",
-                                f"{prefix}: Completed. {len(confirmed_doc_ids)} verified, {unconfirmed_count} rejected (ownership)")
+                                f"{prefix}: Completed. {len(confirmed_doc_ids)} verified & uploaded, "
+                                f"{unconfirmed_count} rejected (ownership), {bc.documents_failed} failed")
                 await self.db.flush()
 
         except Exception as e:
@@ -503,3 +507,17 @@ class BatchOrchestrator:
         self.db.add(log_entry)
         await self.db.flush()
         logger.info("batch_log", batch_id=batch_import_id, level=level, stage=stage, message=message)
+
+    async def _cleanup_batch_local_files(self, batch: BatchImport) -> None:
+        """Remove local files for a concluded batch. Called after batch completes/fails."""
+        batch_dir = settings.upload_path / batch.correlation_id
+        if batch_dir.exists():
+            try:
+                shutil.rmtree(batch_dir)
+                logger.info("batch_local_cleanup", batch_id=batch.id, path=str(batch_dir))
+                await self._log(batch.id, None, "info", "cleanup",
+                                f"Local files cleaned up: {batch_dir}")
+            except Exception as e:
+                logger.warning("batch_local_cleanup_failed", batch_id=batch.id, error=str(e))
+                await self._log(batch.id, None, "warning", "cleanup",
+                                f"Failed to clean up local files: {e}")
