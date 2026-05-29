@@ -2,10 +2,11 @@ import { Link, Outlet, useLocation } from 'react-router-dom';
 
 const navigation = [
   { name: 'Dashboard', path: '/' },
-  { name: 'Upload', path: '/upload' },
+  { name: 'Batch Import', path: '/upload' },
   { name: 'Documents', path: '/documents' },
   { name: 'Candidates', path: '/candidates' },
   { name: 'Audit Logs', path: '/audit' },
+  { name: 'Settings', path: '/settings' },
 ];
 
 export default function Layout() {

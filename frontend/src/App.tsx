@@ -6,6 +6,7 @@ import DocumentsPage from './pages/DocumentsPage';
 import DocumentDetailPage from './pages/DocumentDetailPage';
 import CandidatesPage from './pages/CandidatesPage';
 import AuditPage from './pages/AuditPage';
+import SettingsPage from './pages/SettingsPage';
 
 function App() {
   return (
@@ -17,6 +18,7 @@ function App() {
         <Route path="documents/:documentId" element={<DocumentDetailPage />} />
         <Route path="candidates" element={<CandidatesPage />} />
         <Route path="audit" element={<AuditPage />} />
+        <Route path="settings" element={<SettingsPage />} />
       </Route>
     </Routes>
   );

@@ -67,3 +67,31 @@ class LogLevel(str, enum.Enum):
     WARNING = "warning"
     ERROR = "error"
     CRITICAL = "critical"
+
+
+class BatchImportStatus(str, enum.Enum):
+    UPLOADED = "uploaded"
+    PARSING = "parsing"
+    PARSED = "parsed"
+    PARSE_FAILED = "parse_failed"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    COMPLETED_WITH_ERRORS = "completed_with_errors"
+    FAILED = "failed"
+
+
+class BatchCandidateStatus(str, enum.Enum):
+    PENDING = "pending"
+    DISCOVERING = "discovering"
+    DOCUMENTS_FOUND = "documents_found"
+    NO_DOCUMENTS = "no_documents"
+    DOWNLOADING = "downloading"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
+class IntegrationProvider(str, enum.Enum):
+    GMAIL = "gmail"
+    GOOGLE_DRIVE = "google_drive"

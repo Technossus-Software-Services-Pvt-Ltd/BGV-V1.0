@@ -6,6 +6,10 @@ from app.models.classification import AIClassification
 from app.models.validation_result import ValidationResult
 from app.models.audit_log import AuditLog
 from app.models.processing_event import ProcessingEvent
+from app.models.batch_import import BatchImport
+from app.models.batch_import_candidate import BatchImportCandidate
+from app.models.batch_log import BatchLog
+from app.models.integration_config import IntegrationConfig
 
 __all__ = [
     "Candidate",
@@ -17,4 +21,8 @@ __all__ = [
     "ValidationResult",
     "AuditLog",
     "ProcessingEvent",
+    "BatchImport",
+    "BatchImportCandidate",
+    "BatchLog",
+    "IntegrationConfig",
 ]
