@@ -39,6 +39,10 @@ export interface DocumentListItem {
   correlation_id: string;
   created_at: string;
   updated_at: string;
+  // Ownership verification
+  validation_status: string | null;
+  ownership_confirmed: boolean | null;
+  validated_at: string | null;
 }
 
 export interface DocumentDetail {

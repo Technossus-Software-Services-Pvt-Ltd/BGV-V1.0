@@ -93,6 +93,8 @@ export default function DocumentsPage() {
                 <th className="text-left py-3 px-4 font-medium text-gray-500">Size</th>
                 <th className="text-left py-3 px-4 font-medium text-gray-500">Type</th>
                 <th className="text-left py-3 px-4 font-medium text-gray-500">Status</th>
+                <th className="text-left py-3 px-4 font-medium text-gray-500">Ownership Verification</th>
+                <th className="text-left py-3 px-4 font-medium text-gray-500">Error</th>
                 <th className="text-left py-3 px-4 font-medium text-gray-500">Date</th>
                 <th className="text-left py-3 px-4 font-medium text-gray-500">Actions</th>
               </tr>
@@ -108,8 +110,22 @@ export default function DocumentsPage() {
                   <td className="py-3 px-4">
                     <StatusBadge status={doc.processing_status} />
                   </td>
+                  <td className="py-3 px-4">
+                    <OwnershipBadge
+                      status={doc.validation_status}
+                      confirmed={doc.ownership_confirmed}
+                      validatedAt={doc.validated_at}
+                    />
+                  </td>
+                  <td className="py-3 px-4">
+                    {doc.error_message && (
+                      <span className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded max-w-[200px] truncate inline-block" title={doc.error_message}>
+                        {doc.error_message}
+                      </span>
+                    )}
+                  </td>
                   <td className="py-3 px-4 text-gray-500 text-xs">
-                    {new Date(doc.created_at).toLocaleDateString()}
+                    {new Date(doc.created_at).toLocaleString()}
                   </td>
                   <td className="py-3 px-4">
                     <Link
@@ -135,4 +151,43 @@ function formatFileSize(bytes: number): string {
   const sizes = ['B', 'KB', 'MB', 'GB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+}
+
+function OwnershipBadge({
+  status,
+  confirmed,
+  validatedAt,
+}: {
+  status: string | null;
+  confirmed: boolean | null;
+  validatedAt: string | null;
+}) {
+  if (!status) {
+    return <span className="text-xs text-gray-400">Pending</span>;
+  }
+
+  const label = confirmed
+    ? `${status} - Confirmed`
+    : status === 'partial_match'
+    ? `${status} - Review`
+    : `${status} - Not Confirmed`;
+
+  const colorClass = confirmed
+    ? 'text-green-700 bg-green-50 border-green-200'
+    : status === 'partial_match'
+    ? 'text-yellow-700 bg-yellow-50 border-yellow-200'
+    : 'text-red-700 bg-red-50 border-red-200';
+
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className={`text-xs px-2 py-0.5 rounded border inline-block ${colorClass}`}>
+        {label}
+      </span>
+      {validatedAt && (
+        <span className="text-[10px] text-gray-400">
+          {new Date(validatedAt).toLocaleString()}
+        </span>
+      )}
+    </div>
+  );
 }
