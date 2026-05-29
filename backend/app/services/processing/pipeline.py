@@ -132,16 +132,32 @@ class ProcessingPipeline:
                         all_confidences.append(ocr_result.confidence_score)
 
             if not all_ocr_text:
-                await self._update_status(document, ProcessingStatus.OCR_FAILED)
-                document.error_message = "OCR produced no text from any page"
-                await self.audit.log(
-                    correlation_id=correlation_id,
-                    action=AuditAction.OCR_FAILED.value,
-                    message="OCR produced no text",
-                    log_level=LogLevel.ERROR.value,
-                    document_id=document_id,
-                    processing_stage="ocr",
-                )
+                # Check if this is a photo/image file that simply can't be processed for text
+                photo_mime_types = {"image/jpeg", "image/jpg", "image/png", "image/gif", "image/bmp", "image/webp"}
+                is_photo = document.mime_type and document.mime_type.lower() in photo_mime_types
+
+                if is_photo:
+                    await self._update_status(document, ProcessingStatus.SKIPPED)
+                    document.error_message = "Can't process photos"
+                    await self.audit.log(
+                        correlation_id=correlation_id,
+                        action=AuditAction.OCR_FAILED.value,
+                        message="Can't process photos - no text content",
+                        log_level=LogLevel.WARNING.value,
+                        document_id=document_id,
+                        processing_stage="ocr",
+                    )
+                else:
+                    await self._update_status(document, ProcessingStatus.OCR_FAILED)
+                    document.error_message = "OCR produced no text from any page"
+                    await self.audit.log(
+                        correlation_id=correlation_id,
+                        action=AuditAction.OCR_FAILED.value,
+                        message="OCR produced no text",
+                        log_level=LogLevel.ERROR.value,
+                        document_id=document_id,
+                        processing_stage="ocr",
+                    )
                 await self.db.flush()
                 return
 

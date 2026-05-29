@@ -10,7 +10,7 @@ import ClassificationViewer from '../components/ClassificationViewer';
 import ValidationResultViewer from '../components/ValidationResultViewer';
 import ProcessingTimelineView from '../components/ProcessingTimelineView';
 
-const TERMINAL_STATUSES = ['completed', 'failed', 'ocr_failed'];
+const TERMINAL_STATUSES = ['completed', 'failed', 'ocr_failed', 'skipped'];
 
 export default function DocumentDetailPage() {
   const { documentId } = useParams<{ documentId: string }>();
