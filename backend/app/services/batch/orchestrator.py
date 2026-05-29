@@ -300,7 +300,9 @@ class BatchOrchestrator:
                 await self.db.flush()
             else:
                 # Upload only ownership-confirmed documents to Drive
+                # Get a fresh Drive service to avoid stale connections after pipeline processing
                 if drive_service and storage_folder_id:
+                    drive_service = await self._get_drive_service() or drive_service
                     for doc_id in confirmed_doc_ids:
                         try:
                             doc_result = await self.db.execute(

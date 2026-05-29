@@ -50,6 +50,12 @@ class GoogleDriveService:
 
         creds_data = json.loads(credentials_json)
         credentials = Credentials.from_authorized_user_info(creds_data)
+
+        # Refresh token if expired
+        if credentials.expired and credentials.refresh_token:
+            from google.auth.transport.requests import Request
+            credentials.refresh(Request())
+
         self._service = build("drive", "v3", credentials=credentials, cache_discovery=False)
 
         # Parse config
