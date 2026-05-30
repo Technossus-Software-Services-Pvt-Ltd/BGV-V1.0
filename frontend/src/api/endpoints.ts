@@ -37,6 +37,8 @@ export async function uploadDocuments(formData: FormData): Promise<UploadRespons
 export async function listDocuments(params?: {
   candidate_id?: string;
   status_filter?: string;
+  date_from?: string;
+  date_to?: string;
   skip?: number;
   limit?: number;
 }): Promise<DocumentListItem[]> {
@@ -74,6 +76,8 @@ export async function getProcessingTimeline(documentId: string): Promise<Process
 
 export async function listBatches(params?: {
   candidate_id?: string;
+  date_from?: string;
+  date_to?: string;
   skip?: number;
   limit?: number;
 }): Promise<BatchInfo[]> {

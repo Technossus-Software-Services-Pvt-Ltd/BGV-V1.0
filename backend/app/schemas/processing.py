@@ -31,6 +31,7 @@ class ProcessingTimelineResponse(BaseModel):
 class UploadBatchResponse(BaseModel):
     id: str
     candidate_id: str
+    candidate_name: Optional[str] = None
     batch_reference: str
     total_files: int
     processed_files: int
