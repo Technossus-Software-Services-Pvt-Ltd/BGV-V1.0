@@ -12,12 +12,15 @@ from sqlalchemy import select
 
 from app.db.session import get_db
 from app.models.integration_config import IntegrationConfig
+from app.models.required_document_rule import RequiredDocumentRule
 from app.models.enums import IntegrationProvider
 from app.schemas.batch import (
     IntegrationConfigResponse,
     IntegrationConfigUpdateRequest,
     GmailStatusResponse,
     DriveConfigRequest,
+    RequiredDocumentChecklistRequest,
+    RequiredDocumentRuleResponse,
 )
 from app.core.config import settings as app_settings
 from app.core.logging import get_logger
@@ -290,6 +293,84 @@ async def get_drive_config(db: AsyncSession = Depends(get_db)):
     if config.config_json:
         return json.loads(config.config_json)
     return {"search_folder_ids": [], "storage_root_folder_id": None}
+
+
+# ─── Required document checklist ─────────────────────────────────────
+
+@router.get("/required-documents", response_model=List[RequiredDocumentRuleResponse])
+async def list_required_documents(db: AsyncSession = Depends(get_db)):
+    """Get active required document checklist entries ordered for UI display."""
+    result = await db.execute(
+        select(RequiredDocumentRule)
+        .where(RequiredDocumentRule.is_active.is_(True))
+        .order_by(RequiredDocumentRule.sort_order, RequiredDocumentRule.created_at)
+    )
+    rules = result.scalars().all()
+
+    return [
+        RequiredDocumentRuleResponse(
+            id=rule.id,
+            document_name=rule.document_name,
+            category=rule.category,
+            is_mandatory=rule.is_mandatory,
+            accepted_formats=json.loads(rule.accepted_formats_json or "[]"),
+            sort_order=rule.sort_order,
+            is_active=rule.is_active,
+            created_at=rule.created_at,
+            updated_at=rule.updated_at,
+        )
+        for rule in rules
+    ]
+
+
+@router.put("/required-documents", response_model=List[RequiredDocumentRuleResponse])
+async def save_required_documents(
+    body: RequiredDocumentChecklistRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Replace the required document checklist with the submitted ordered list."""
+    existing = await db.execute(select(RequiredDocumentRule))
+    for rule in existing.scalars().all():
+        await db.delete(rule)
+
+    for idx, item in enumerate(body.items):
+        normalized_formats = sorted({fmt.strip().lower() for fmt in item.accepted_formats if fmt.strip()})
+        db.add(
+            RequiredDocumentRule(
+                document_name=item.document_name.strip(),
+                category=item.category.strip(),
+                is_mandatory=item.is_mandatory,
+                accepted_formats_json=json.dumps(normalized_formats),
+                sort_order=item.sort_order if item.sort_order is not None else idx,
+                is_active=item.is_active,
+            )
+        )
+
+    await db.commit()
+
+    refreshed = await db.execute(
+        select(RequiredDocumentRule)
+        .where(RequiredDocumentRule.is_active.is_(True))
+        .order_by(RequiredDocumentRule.sort_order, RequiredDocumentRule.created_at)
+    )
+    rules = refreshed.scalars().all()
+
+    logger.info("required_document_checklist_saved", total=len(rules))
+
+    return [
+        RequiredDocumentRuleResponse(
+            id=rule.id,
+            document_name=rule.document_name,
+            category=rule.category,
+            is_mandatory=rule.is_mandatory,
+            accepted_formats=json.loads(rule.accepted_formats_json or "[]"),
+            sort_order=rule.sort_order,
+            is_active=rule.is_active,
+            created_at=rule.created_at,
+            updated_at=rule.updated_at,
+        )
+        for rule in rules
+    ]
 
 
 # ─── Legacy generic endpoints (kept for compatibility) ───────────────

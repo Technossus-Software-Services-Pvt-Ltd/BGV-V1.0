@@ -262,3 +262,28 @@ export interface DriveConfig {
   search_folder_ids: string[];
   storage_root_folder_id: string | null;
 }
+
+export interface RequiredDocumentRule {
+  id: string;
+  document_name: string;
+  category: string;
+  is_mandatory: boolean;
+  accepted_formats: string[];
+  sort_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RequiredDocumentRuleInput {
+  document_name: string;
+  category: string;
+  is_mandatory: boolean;
+  accepted_formats: string[];
+  sort_order: number;
+  is_active: boolean;
+}
+
+export interface RequiredDocumentChecklistSaveRequest {
+  items: RequiredDocumentRuleInput[];
+}
