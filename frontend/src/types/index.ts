@@ -149,6 +149,7 @@ export interface ProcessingEvent {
 export interface BatchInfo {
   id: string;
   candidate_id: string;
+  candidate_name: string | null;
   batch_reference: string;
   total_files: number;
   processed_files: number;

@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from typing import List
+from sqlalchemy import select, func
+from typing import List, Optional
+from datetime import date, datetime, timedelta
 
 from app.db.session import get_db
 from app.models.document import Document, DocumentPage
@@ -25,6 +26,8 @@ router = APIRouter()
 async def list_documents(
     candidate_id: str = None,
     status_filter: str = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
     skip: int = 0,
     limit: int = 50,
     db: AsyncSession = Depends(get_db),
@@ -35,6 +38,10 @@ async def list_documents(
         query = query.where(Document.candidate_id == candidate_id)
     if status_filter:
         query = query.where(Document.processing_status == status_filter)
+    if date_from:
+        query = query.where(Document.created_at >= datetime.strptime(date_from, "%Y-%m-%d"))
+    if date_to:
+        query = query.where(Document.created_at < datetime.strptime(date_to, "%Y-%m-%d") + timedelta(days=1))
 
     query = query.offset(skip).limit(limit)
     result = await db.execute(query)

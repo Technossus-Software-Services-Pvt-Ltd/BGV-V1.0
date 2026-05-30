@@ -14,13 +14,22 @@ export default function DocumentsPage() {
   const [expandedBatches, setExpandedBatches] = useState<Set<string>>(new Set());
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Date filters — default to today
+  const today = new Date().toISOString().split('T')[0];
+  const [dateFrom, setDateFrom] = useState(today);
+  const [dateTo, setDateTo] = useState(today);
+
   const loadData = async (showLoading = true) => {
     if (showLoading) setLoading(true);
     setError(null);
     try {
+      const dateParams = {
+        date_from: dateFrom || undefined,
+        date_to: dateTo || undefined,
+      };
       const [docsData, batchData] = await Promise.all([
-        listDocuments({ limit: 100 }),
-        listBatches({ limit: 100 }),
+        listDocuments({ limit: 500, ...dateParams }),
+        listBatches({ limit: 500, ...dateParams }),
       ]);
       setDocuments(docsData);
       setBatches(batchData);
@@ -33,7 +42,7 @@ export default function DocumentsPage() {
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [dateFrom, dateTo]);
 
   // Auto-poll every 5 seconds if any document is still processing
   useEffect(() => {
@@ -82,6 +91,7 @@ export default function DocumentsPage() {
           batch: {
             id: batchId,
             candidate_id: docs[0]?.candidate_id || '',
+            candidate_name: null,
             batch_reference: batchId.slice(0, 8).toUpperCase(),
             total_files: docs.length,
             processed_files: docs.filter((d) => d.processing_status === 'completed').length,
@@ -133,12 +143,50 @@ export default function DocumentsPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Documents</h1>
           <p className="mt-1 text-sm text-gray-500">
-            {stats.batches} batches &middot; {stats.total} documents &mdash; {stats.completed} completed, {stats.processing} in progress, {stats.failed} failed
+            {stats.total} documents &mdash; {stats.completed} completed, {stats.processing} in progress, {stats.failed} failed
           </p>
         </div>
         <Link to="/upload" className="btn-primary shrink-0">
           Upload New
         </Link>
+      </div>
+
+      {/* Date Filters */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-gray-500 font-medium">From</label>
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+            className="input-field text-sm w-auto"
+            aria-label="Filter from date"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-gray-500 font-medium">To</label>
+          <input
+            type="date"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+            className="input-field text-sm w-auto"
+            aria-label="Filter to date"
+          />
+        </div>
+        <button
+          onClick={() => { setDateFrom(today); setDateTo(today); }}
+          className="text-xs text-primary-600 hover:text-primary-700 font-medium"
+        >
+          Today
+        </button>
+        {(dateFrom !== today || dateTo !== today) && (
+          <button
+            onClick={() => { setDateFrom(''); setDateTo(''); }}
+            className="text-xs text-gray-500 hover:text-gray-700 font-medium"
+          >
+            All Time
+          </button>
+        )}
       </div>
 
       {/* Expand / Collapse toggle */}
@@ -227,14 +275,14 @@ function BatchCard({
         {/* Batch icon */}
         <div className="shrink-0 h-10 w-10 rounded-xl bg-primary-50 flex items-center justify-center">
           <svg className="h-5 w-5 text-primary-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
           </svg>
         </div>
 
-        {/* Batch info */}
+        {/* Candidate info */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <p className="text-sm font-semibold text-gray-900 truncate">{batch.batch_reference}</p>
+            <p className="text-sm font-semibold text-gray-900 truncate">{batch.candidate_name ? `${extractBatchCode(batch.batch_reference)} - ${batch.candidate_name}` : extractBatchCode(batch.batch_reference)}</p>
             <StatusBadge status={batch.processing_status} />
           </div>
           <div className="flex items-center gap-3 mt-1 text-xs text-gray-400">
@@ -352,6 +400,12 @@ function DocumentRow({ doc, nested = false }: { doc: DocumentListItem; nested?: 
 }
 
 /* ─── Helpers ─── */
+function extractBatchCode(batchRef: string): string {
+  // batch_reference format: "BATCH-{code}-{candidateId}" → extract just the code
+  const parts = batchRef.split('-');
+  return parts.length >= 2 ? parts[1] : batchRef;
+}
+
 function fileIconBg(mime: string): string {
   if (mime.includes('pdf')) return 'bg-rose-50 text-rose-500';
   if (mime.includes('image')) return 'bg-sky-50 text-sky-500';
