@@ -23,13 +23,14 @@ const navigation: NavItem[] = [
     ),
   },
   {
-    name: 'Batch Import',
+    name: 'Batch Processing',
     path: '/upload',
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden="true">
-        <path d="M12 16V4" />
-        <path d="M7 9l5-5 5 5" />
-        <path d="M4 20h16" />
+        <path d="M3 8h18" />
+        <path d="M3 12h18" />
+        <path d="M3 16h18" />
+        <rect x="3" y="5" width="18" height="14" rx="2" />
       </svg>
     ),
   },
@@ -176,7 +177,7 @@ export default function Layout() {
               <span className="text-white font-bold text-sm">BGV</span>
             </div>
             <div>
-              <p className="text-xl font-semibold leading-5">DocHire</p>
+              <p className="text-xl font-semibold leading-5">BGV</p>
               <p className="text-sm text-slate-300">Verification Agent</p>
             </div>
           </Link>
@@ -253,7 +254,7 @@ export default function Layout() {
               <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center">
                 <span className="text-white font-bold text-sm">BGV</span>
               </div>
-              <span className="font-semibold text-gray-900">DocHire</span>
+              <span className="font-semibold text-gray-900">BGV</span>
             </Link>
 
             <button
@@ -312,7 +313,7 @@ export default function Layout() {
                   <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center">
                     <span className="text-white font-bold text-sm">BGV</span>
                   </div>
-                  <span className="font-semibold text-white">DocHire</span>
+                  <span className="font-semibold text-white">BGV</span>
                 </div>
                 <button
                   type="button"

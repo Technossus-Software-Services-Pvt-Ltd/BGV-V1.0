@@ -39,7 +39,10 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+        <p className="mt-0.5 text-sm text-gray-500">Overview of verification activities</p>
+      </div>
 
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -53,7 +56,10 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Document Processing Status - Pie */}
         <div className="card">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Document Processing Status</h2>
+          <h2 className="text-base font-semibold text-gray-800 mb-4 flex items-center gap-2">
+            <span className="inline-block w-1 h-4 rounded-full bg-blue-500"></span>
+            Document Processing Status
+          </h2>
           <ResponsiveContainer width="100%" height={260}>
             <PieChart>
               <Pie
@@ -79,7 +85,10 @@ export default function Dashboard() {
 
         {/* Ownership Verification - Pie */}
         <div className="card">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Ownership Verification</h2>
+          <h2 className="text-base font-semibold text-gray-800 mb-4 flex items-center gap-2">
+            <span className="inline-block w-1 h-4 rounded-full bg-green-500"></span>
+            Ownership Verification
+          </h2>
           <ResponsiveContainer width="100%" height={260}>
             <PieChart>
               <Pie
@@ -108,7 +117,10 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Daily Documents - Line Chart */}
         <div className="card">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Documents (Last 7 Days)</h2>
+          <h2 className="text-base font-semibold text-gray-800 mb-4 flex items-center gap-2">
+            <span className="inline-block w-1 h-4 rounded-full bg-blue-500"></span>
+            Documents (Last 7 Days)
+          </h2>
           <ResponsiveContainer width="100%" height={240}>
             <LineChart data={stats.daily_documents}>
               <CartesianGrid strokeDasharray="3 3" />
@@ -122,7 +134,10 @@ export default function Dashboard() {
 
         {/* Daily Batches - Line Chart */}
         <div className="card">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Batches (Last 7 Days)</h2>
+          <h2 className="text-base font-semibold text-gray-800 mb-4 flex items-center gap-2">
+            <span className="inline-block w-1 h-4 rounded-full bg-indigo-500"></span>
+            Batches (Last 7 Days)
+          </h2>
           <ResponsiveContainer width="100%" height={240}>
             <LineChart data={stats.daily_batches}>
               <CartesianGrid strokeDasharray="3 3" />
@@ -138,7 +153,10 @@ export default function Dashboard() {
       {/* Document Type Distribution - Bar Chart */}
       {stats.document_types.length > 0 && (
         <div className="card">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Document Type Distribution</h2>
+          <h2 className="text-base font-semibold text-gray-800 mb-4 flex items-center gap-2">
+            <span className="inline-block w-1 h-4 rounded-full bg-indigo-500"></span>
+            Document Type Distribution
+          </h2>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={stats.document_types} layout="vertical" margin={{ left: 100 }}>
               <CartesianGrid strokeDasharray="3 3" />
@@ -158,18 +176,63 @@ export default function Dashboard() {
   );
 }
 
+const STAT_ICON_CONFIG: Record<string, { iconBg: string; iconColor: string; icon: JSX.Element }> = {
+  blue: {
+    iconBg: 'bg-blue-100',
+    iconColor: 'text-blue-600',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-6 w-6" aria-hidden="true">
+        <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z" />
+        <path d="M14 3v5h5" />
+        <path d="M10 13h4" /><path d="M10 17h4" />
+      </svg>
+    ),
+  },
+  green: {
+    iconBg: 'bg-green-100',
+    iconColor: 'text-green-600',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-6 w-6" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" />
+        <path d="m9 12 2 2 4-4" />
+      </svg>
+    ),
+  },
+  indigo: {
+    iconBg: 'bg-indigo-100',
+    iconColor: 'text-indigo-600',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-6 w-6" aria-hidden="true">
+        <rect x="3" y="4" width="8" height="7" rx="1.5" />
+        <rect x="13" y="4" width="8" height="7" rx="1.5" />
+        <rect x="3" y="13" width="8" height="7" rx="1.5" />
+        <rect x="13" y="13" width="8" height="7" rx="1.5" />
+      </svg>
+    ),
+  },
+  purple: {
+    iconBg: 'bg-purple-100',
+    iconColor: 'text-purple-600',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-6 w-6" aria-hidden="true">
+        <circle cx="12" cy="8" r="3.5" />
+        <path d="M5 20c1.8-3 4-4.5 7-4.5s5.2 1.5 7 4.5" />
+      </svg>
+    ),
+  },
+};
+
 function StatCard({ label, value, color }: { label: string; value: number; color: string }) {
-  const colorMap: Record<string, string> = {
-    blue: 'bg-blue-50 text-blue-700 border-blue-200',
-    green: 'bg-green-50 text-green-700 border-green-200',
-    red: 'bg-red-50 text-red-700 border-red-200',
-    indigo: 'bg-indigo-50 text-indigo-700 border-indigo-200',
-    purple: 'bg-purple-50 text-purple-700 border-purple-200',
-  };
+  const cfg = STAT_ICON_CONFIG[color] ?? STAT_ICON_CONFIG.blue;
   return (
-    <div className={`rounded-xl border p-4 ${colorMap[color] || colorMap.blue}`}>
-      <p className="text-3xl font-bold">{value}</p>
-      <p className="text-sm mt-1 opacity-80">{label}</p>
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center justify-between gap-4">
+      <div className="min-w-0">
+        <p className="text-xs font-semibold tracking-widest text-gray-400 uppercase truncate">{label}</p>
+        <p className="mt-1.5 text-3xl font-bold text-gray-900 tabular-nums">{value.toLocaleString()}</p>
+      </div>
+      <div className={`shrink-0 h-12 w-12 rounded-xl ${cfg.iconBg} ${cfg.iconColor} flex items-center justify-center`}>
+        {cfg.icon}
+      </div>
     </div>
   );
 }
