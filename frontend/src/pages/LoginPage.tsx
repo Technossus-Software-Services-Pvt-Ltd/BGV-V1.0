@@ -36,22 +36,22 @@ export default function LoginPage() {
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-slate-950">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_35%_35%,rgba(37,99,235,0.25),transparent_40%),radial-gradient(circle_at_80%_20%,rgba(59,130,246,0.2),transparent_35%),linear-gradient(135deg,#020617_0%,#0b1b4d_55%,#1d2f70_100%)]" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_35%_35%,rgba(79,70,229,0.25),transparent_40%),radial-gradient(circle_at_80%_20%,rgba(99,102,241,0.2),transparent_35%),linear-gradient(135deg,#020617_0%,#1e1b4b_55%,#312e81_100%)]" />
       <div className="relative z-10 flex min-h-screen flex-col items-center justify-center px-4 py-10">
-        <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-600 shadow-xl shadow-blue-600/30">
+        <div className="mb-10 text-center">
+          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-primary-500 to-primary-700 shadow-xl shadow-primary-900/40">
             <span className="text-2xl text-white">🛡️</span>
           </div>
-          <h1 className="text-4xl md:text-5xl font-bold text-white">BGV classification Agent</h1>
-          <p className="mt-2 text-lg text-blue-200">Background Verification Agent</p>
+          <h1 className="text-4xl md:text-5xl font-bold text-white tracking-tight">BGV Platform</h1>
+          <p className="mt-2 text-lg text-primary-200/80 font-medium">AI-Powered Background Verification</p>
         </div>
 
-        <div className="w-full max-w-md rounded-3xl border border-white/10 bg-white/10 p-8 shadow-2xl backdrop-blur-xl">
-          <h2 className="text-center text-3xl font-semibold text-white">Welcome Back</h2>
-          <p className="mt-2 text-center text-sm text-blue-100">Sign in to access your verification dashboard</p>
+        <div className="w-full max-w-md rounded-3xl border border-white/[0.08] bg-white/[0.08] p-8 shadow-2xl backdrop-blur-xl">
+          <h2 className="text-center text-2xl font-bold text-white tracking-tight">Welcome Back</h2>
+          <p className="mt-2 text-center text-sm text-primary-200/70">Sign in to access your verification dashboard</p>
 
           {error && (
-            <div className="mt-6 rounded-lg border border-red-300/30 bg-red-500/20 px-4 py-3 text-sm text-red-100">
+            <div className="mt-6 rounded-xl border border-rose-300/20 bg-rose-500/15 px-4 py-3 text-sm text-rose-200">
               {error}
             </div>
           )}
@@ -60,7 +60,7 @@ export default function LoginPage() {
             type="button"
             onClick={handleGoogleLogin}
             disabled={isLoading}
-            className="mt-8 flex w-full items-center justify-center gap-3 rounded-xl bg-white px-4 py-3 text-base font-semibold text-gray-800 transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60"
+            className="mt-8 flex w-full items-center justify-center gap-3 rounded-xl bg-white px-4 py-3.5 text-base font-semibold text-gray-800 shadow-lg transition-all duration-200 hover:bg-gray-50 hover:shadow-xl hover:scale-[1.01] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
           >
             <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5">
               <path
@@ -84,7 +84,7 @@ export default function LoginPage() {
           </button>
         </div>
 
-        <p className="mt-8 text-sm text-blue-200/80">© 2026 BGV classification Agent. All rights reserved.</p>
+        <p className="mt-8 text-sm text-primary-200/50 font-medium">© 2026 BGV Platform. All rights reserved.</p>
       </div>
     </div>
   );
