@@ -1,12 +1,10 @@
-import json
 import shutil
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select
 
 from app.models.batch_import import BatchImport
 from app.models.batch_import_candidate import BatchImportCandidate
@@ -20,9 +18,7 @@ from app.models.enums import (
     BatchCandidateStatus,
     IntegrationProvider,
     ProcessingStatus,
-    LogLevel,
     AuditAction,
-    ValidationStatus,
 )
 from app.models.validation_result import ValidationResult
 from app.services.integrations.gmail_scanner import GmailScanner, DiscoveredAttachment
@@ -215,16 +211,8 @@ class BatchOrchestrator:
             self.db.add(upload_batch)
             await self.db.flush()
 
-            # Create Drive storage folder (if Drive is available)
+            # Drive folder creation is deferred until first document passes ownership
             storage_folder_id = None
-            if drive_service:
-                try:
-                    storage_folder_id = drive_service.create_storage_folder(
-                        batch.batch_code, bc.source_name
-                    )
-                except Exception as e:
-                    await self._log(batch.id, bc.id, "warning", "drive_storage",
-                                    f"{prefix}: Could not create Drive folder: {e}")
 
             document_ids = []
 
@@ -234,7 +222,7 @@ class BatchOrchestrator:
                     file_bytes = gmail_scanner.download_attachment(att.message_id, att.attachment_id)
                     doc_id = await self._save_document(
                         candidate, upload_batch, att.filename, att.mime_type, file_bytes,
-                        batch.correlation_id, drive_service, storage_folder_id,
+                        batch.correlation_id,
                     )
                     document_ids.append(doc_id)
                 except Exception as e:
@@ -253,7 +241,7 @@ class BatchOrchestrator:
                         mime = "application/pdf"
                     doc_id = await self._save_document(
                         candidate, upload_batch, filename, mime, file_bytes,
-                        batch.correlation_id, drive_service, storage_folder_id,
+                        batch.correlation_id,
                     )
                     document_ids.append(doc_id)
                 except Exception as e:
@@ -285,23 +273,11 @@ class BatchOrchestrator:
                     )
                     if vr_result.scalar_one_or_none():
                         confirmed_doc_ids.append(doc_id)
-                        # Upload to Drive immediately if folder exists
-                        if drive_service and storage_folder_id:
-                            try:
-                                doc_result = await self.db.execute(
-                                    select(Document).where(Document.id == doc_id)
-                                )
-                                doc = doc_result.scalar_one()
-                                file_bytes = Path(doc.file_path).read_bytes()
-                                drive_service.upload_file(
-                                    storage_folder_id, doc.original_filename, file_bytes, doc.mime_type
-                                )
-                                await self._log(batch.id, bc.id, "info", "drive_upload",
-                                                f"{prefix}: Uploaded '{doc.original_filename}' to Drive (ownership confirmed)")
-                            except Exception as e:
-                                logger.warning("drive_upload_failed", doc_id=doc_id, error=str(e))
-                                await self._log(batch.id, bc.id, "warning", "drive_upload",
-                                                f"{prefix}: Drive upload failed for document {doc_id}: {e}")
+                        # Upload to Drive immediately — create folder lazily on first confirmed doc
+                        if drive_service:
+                            drive_service, storage_folder_id = await self._upload_to_drive(
+                                drive_service, storage_folder_id, batch, bc, doc_id, prefix
+                            )
                     else:
                         await self._log(batch.id, bc.id, "warning", "ownership",
                                         f"{prefix}: Document {doc_id} failed ownership verification - not uploaded")
@@ -352,10 +328,8 @@ class BatchOrchestrator:
         mime_type: str,
         file_bytes: bytes,
         correlation_id: str,
-        drive_service: Optional[GoogleDriveService],
-        storage_folder_id: Optional[str],
     ) -> str:
-        """Save a downloaded document to disk and DB. Optionally upload to Drive storage."""
+        """Save a downloaded document to disk and DB."""
         file_ext = Path(filename).suffix.lower() or ".pdf"
         stored_name = f"{uuid.uuid4().hex}{file_ext}"
         file_dir = settings.upload_path / correlation_id / candidate.id
@@ -376,8 +350,6 @@ class BatchOrchestrator:
         )
         self.db.add(document)
         await self.db.flush()
-
-        # Drive upload is deferred until after ownership validation passes
 
         # Audit log
         await self.audit.log(
@@ -507,6 +479,56 @@ class BatchOrchestrator:
         self.db.add(log_entry)
         await self.db.flush()
         logger.info("batch_log", batch_id=batch_import_id, level=level, stage=stage, message=message)
+
+    async def _upload_to_drive(
+        self,
+        drive_service: GoogleDriveService,
+        storage_folder_id: Optional[str],
+        batch: BatchImport,
+        bc: BatchImportCandidate,
+        doc_id: str,
+        prefix: str,
+    ) -> tuple[GoogleDriveService, Optional[str]]:
+        """Upload a confirmed document to Drive with lazy folder creation and retry on connection error.
+        Returns the (possibly refreshed) drive_service and storage_folder_id.
+        """
+        for attempt in range(2):
+            try:
+                if not storage_folder_id:
+                    storage_folder_id = drive_service.create_storage_folder(
+                        batch.batch_code, bc.source_name
+                    )
+                    await self._log(batch.id, bc.id, "info", "drive_storage",
+                                    f"{prefix}: Created Drive folder for verified documents")
+
+                doc_result = await self.db.execute(
+                    select(Document).where(Document.id == doc_id)
+                )
+                doc = doc_result.scalar_one()
+                file_bytes = Path(doc.file_path).read_bytes()
+                drive_service.upload_file(
+                    storage_folder_id, doc.original_filename, file_bytes, doc.mime_type
+                )
+                await self._log(batch.id, bc.id, "info", "drive_upload",
+                                f"{prefix}: Uploaded '{doc.original_filename}' to Drive (ownership confirmed)")
+                return drive_service, storage_folder_id
+
+            except (OSError, ConnectionError) as e:
+                if attempt == 0:
+                    logger.warning("drive_connection_stale", doc_id=doc_id, error=str(e))
+                    drive_service = await self._get_drive_service() or drive_service
+                else:
+                    logger.warning("drive_upload_failed", doc_id=doc_id, error=str(e))
+                    await self._log(batch.id, bc.id, "warning", "drive_upload",
+                                    f"{prefix}: Drive upload failed for document {doc_id}: {e}")
+
+            except Exception as e:
+                logger.warning("drive_upload_failed", doc_id=doc_id, error=str(e))
+                await self._log(batch.id, bc.id, "warning", "drive_upload",
+                                f"{prefix}: Drive upload failed for document {doc_id}: {e}")
+                break
+
+        return drive_service, storage_folder_id
 
     async def _cleanup_batch_local_files(self, batch: BatchImport) -> None:
         """Remove local files for a concluded batch. Called after batch completes/fails."""
