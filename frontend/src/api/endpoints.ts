@@ -16,6 +16,8 @@ import {
   GmailStatus,
   DriveConfig,
 } from '../types';
+import { UploadResponse, DocumentListItem, DocumentDetail, CandidateResponse, ProcessingTimeline, AuditLogEntry, HealthStatus, BatchInfo } from '../types';
+import { GoogleAuthStartResponse, GoogleAuthCallbackResponse } from '../types/auth';
 
 export async function checkHealth(): Promise<HealthStatus> {
   const response = await api.get('/health');
@@ -193,5 +195,22 @@ export async function updateDriveConfig(
   data: { search_folder_ids: string[]; storage_root_folder_id: string | null },
 ): Promise<{ status: string; message: string }> {
   const response = await api.put('/settings/integrations/drive/config', data);
+  return response.data;
+}
+
+export async function startGoogleLogin(redirectUri?: string): Promise<GoogleAuthStartResponse> {
+  const response = await api.get('/auth/google/start', {
+    params: { redirect_uri: redirectUri },
+  });
+  return response.data;
+}
+
+export async function completeGoogleLogin(code: string, state: string): Promise<GoogleAuthCallbackResponse> {
+  const response = await api.post('/auth/google/callback', { code, state });
+  return response.data;
+}
+
+export async function logoutUser(): Promise<{ success: boolean; message: string }> {
+  const response = await api.post('/auth/logout');
   return response.data;
 }

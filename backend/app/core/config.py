@@ -31,12 +31,14 @@ class Settings(BaseSettings):
     # Google OAuth2 (from Google Cloud Console > OAuth 2.0 Client ID)
     google_client_id: str = ""
     google_client_secret: str = ""
+    google_redirect_uri: str = "http://localhost:3000/auth/callback"
 
     # Processing
     max_concurrent_ocr: int = 2
     max_concurrent_ai: int = 1
     ocr_timeout_seconds: int = 120
     ai_timeout_seconds: int = 60
+
 
     @property
     def cors_origins_list(self) -> List[str]:
