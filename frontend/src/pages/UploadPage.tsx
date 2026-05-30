@@ -37,6 +37,7 @@ export default function UploadPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Load batch history
   useEffect(() => {
@@ -49,6 +50,32 @@ export default function UploadPage() {
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [batchLogs]);
+
+  // Polling fallback: periodically refresh batch detail while processing
+  useEffect(() => {
+    if (processing && activeBatch) {
+      pollRef.current = setInterval(async () => {
+        try {
+          const detail = await getBatchDetail(activeBatch.id);
+          setActiveBatch(detail.batch);
+          setBatchCandidates(detail.candidates);
+          // If batch finished, stop processing
+          if (['completed', 'completed_with_errors', 'failed'].includes(detail.batch.status)) {
+            setProcessing(false);
+            eventSourceRef.current?.close();
+          }
+        } catch {
+          // silent
+        }
+      }, 8000);
+    } else if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, [processing, activeBatch?.id]);
 
   // Cleanup SSE on unmount
   useEffect(() => {
@@ -65,20 +92,27 @@ export default function UploadPage() {
     es.onmessage = (event) => {
       try {
         const data: BatchLogEntry = JSON.parse(event.data);
-        setBatchLogs((prev) => [...prev, data]);
 
-        // If batch completed/failed, refresh detail and close SSE
-        if (data.type === 'batch_status' && (data.status === 'completed' || data.status === 'failed' || data.status === 'completed_with_errors')) {
-          refreshBatchDetail(batchId);
-          es.close();
-          setProcessing(false);
+        // Check if this is the final batch completion event
+        if (data.type === 'complete' || data.type === 'batch_status' || data.type === 'timeout') {
+          if (data.status === 'completed' || data.status === 'failed' || data.status === 'completed_with_errors' || data.type === 'timeout') {
+            refreshBatchDetail(batchId);
+            es.close();
+            setProcessing(false);
+            return;
+          }
         }
+
+        // Regular log entry
+        setBatchLogs((prev) => [...prev, data]);
       } catch {
         // Ignore parse errors
       }
     };
 
     es.onerror = () => {
+      // On SSE error, refresh batch detail as a fallback
+      refreshBatchDetail(batchId);
       es.close();
       setProcessing(false);
     };
@@ -306,7 +340,11 @@ export default function UploadPage() {
                         setBatchLogs([]);
                         eventSourceRef.current?.close();
                       }}
-                      className="px-3 py-2 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-lg"
+                      className={`px-3 py-2 text-sm rounded-lg font-medium ${
+                        ['completed', 'completed_with_errors', 'failed'].includes(activeBatch.status)
+                          ? 'bg-green-600 text-white hover:bg-green-700'
+                          : 'text-gray-600 hover:text-gray-900 border border-gray-300'
+                      }`}
                     >
                       New Import
                     </button>

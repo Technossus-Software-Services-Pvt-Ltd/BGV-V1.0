@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status, BackgroundTasks, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, func
 
 from app.db.session import get_db
 from app.models.batch_import import BatchImport
@@ -55,7 +55,17 @@ async def upload_batch_file(
         raise HTTPException(status_code=400, detail="Import file must be under 10MB")
 
     correlation_id = str(uuid.uuid4())
-    batch_code = f"IMP-{uuid.uuid4().hex[:8].upper()}"
+
+    # Generate batch code: BGV_YYYYMMDD001 (incremental per day)
+    today_str = datetime.now(timezone.utc).strftime("%Y%m%d")
+    prefix = f"BGV_{today_str}"
+    count_result = await db.execute(
+        select(func.count()).select_from(BatchImport).where(
+            BatchImport.batch_code.like(f"{prefix}%")
+        )
+    )
+    seq = (count_result.scalar() or 0) + 1
+    batch_code = f"{prefix}{seq:03d}"
 
     stored_name = f"{uuid.uuid4().hex}{ext}"
     file_dir = settings.upload_path / "batch_imports"
@@ -159,15 +169,32 @@ async def start_batch_processing(
 async def list_batch_imports(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
+    status_filter: Optional[str] = Query(None, alias="status"),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all batch imports."""
-    result = await db.execute(
-        select(BatchImport)
-        .order_by(desc(BatchImport.created_at))
-        .offset(skip)
-        .limit(limit)
-    )
+    """List all batch imports with optional filters."""
+    query = select(BatchImport).order_by(desc(BatchImport.created_at))
+
+    if status_filter:
+        query = query.where(BatchImport.status == status_filter)
+    if date_from:
+        try:
+            dt_from = datetime.strptime(date_from, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            query = query.where(BatchImport.created_at >= dt_from)
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            dt_to = datetime.strptime(date_to, "%Y-%m-%d").replace(
+                hour=23, minute=59, second=59, tzinfo=timezone.utc
+            )
+            query = query.where(BatchImport.created_at <= dt_to)
+        except ValueError:
+            pass
+
+    result = await db.execute(query.offset(skip).limit(limit))
     batches = result.scalars().all()
     return [BatchImportResponse.model_validate(b) for b in batches]
 
@@ -238,6 +265,47 @@ async def retry_batch_candidate(
 
     background_tasks.add_task(_retry_candidate_background, batch_id, candidate_id)
     return BatchCandidateResponse.model_validate(bc)
+
+
+@router.get("/{batch_id}/logs/all")
+async def get_batch_logs(
+    batch_id: str,
+    candidate_id: Optional[str] = Query(None),
+    level: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get all logs for a batch (REST endpoint for audit page)."""
+    result = await db.execute(select(BatchImport).where(BatchImport.id == batch_id))
+    batch = result.scalar_one_or_none()
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+
+    query = (
+        select(BatchLog)
+        .where(BatchLog.batch_import_id == batch_id)
+        .order_by(BatchLog.created_at)
+    )
+    if candidate_id:
+        query = query.where(BatchLog.batch_candidate_id == candidate_id)
+    if level:
+        query = query.where(BatchLog.level == level)
+
+    result = await db.execute(query)
+    logs = result.scalars().all()
+
+    return [
+        {
+            "id": log.id,
+            "batch_import_id": log.batch_import_id,
+            "batch_candidate_id": log.batch_candidate_id,
+            "level": log.level,
+            "stage": log.stage,
+            "message": log.message,
+            "details": log.details,
+            "created_at": log.created_at.isoformat(),
+        }
+        for log in logs
+    ]
 
 
 @router.get("/{batch_id}/logs")

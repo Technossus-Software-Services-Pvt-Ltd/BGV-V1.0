@@ -36,7 +36,7 @@ export default function DocumentsPage() {
   // Auto-poll every 5 seconds if any document is still processing
   useEffect(() => {
     const hasProcessing = documents.some(
-      (doc) => !['completed', 'failed', 'ocr_failed'].includes(doc.processing_status)
+      (doc) => !['completed', 'failed', 'ocr_failed', 'skipped'].includes(doc.processing_status)
     );
     if (hasProcessing) {
       pollRef.current = setInterval(() => loadDocuments(false), 5000);

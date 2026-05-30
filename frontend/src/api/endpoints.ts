@@ -107,6 +107,9 @@ export async function startBatchProcessing(batchId: string): Promise<BatchImport
 export async function listBatchImports(params?: {
   skip?: number;
   limit?: number;
+  status?: string;
+  date_from?: string;
+  date_to?: string;
 }): Promise<BatchImport[]> {
   const response = await api.get('/batch', { params });
   return response.data;
@@ -138,6 +141,25 @@ export async function retryBatchCandidate(
 export function createBatchLogStream(batchId: string): EventSource {
   const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api/v1';
   return new EventSource(`${baseUrl}/batch/${batchId}/logs`);
+}
+
+export interface BatchLogItem {
+  id: string;
+  batch_import_id: string;
+  batch_candidate_id: string | null;
+  level: string;
+  stage: string;
+  message: string;
+  details: string | null;
+  created_at: string;
+}
+
+export async function getBatchLogs(
+  batchId: string,
+  params?: { candidate_id?: string; level?: string },
+): Promise<BatchLogItem[]> {
+  const response = await api.get(`/batch/${batchId}/logs/all`, { params });
+  return response.data;
 }
 
 // === Settings / Integrations ===
@@ -195,6 +217,73 @@ export async function updateDriveConfig(
   data: { search_folder_ids: string[]; storage_root_folder_id: string | null },
 ): Promise<{ status: string; message: string }> {
   const response = await api.put('/settings/integrations/drive/config', data);
+  return response.data;
+}
+
+// === Dashboard ===
+
+export interface DashboardStats {
+  summary: {
+    total_documents: number;
+    completed_documents: number;
+    failed_documents: number;
+    skipped_documents: number;
+    in_progress_documents: number;
+    total_batches: number;
+    total_candidates: number;
+  };
+  document_status: { status: string; count: number }[];
+  batch_status: { status: string; count: number }[];
+  ownership_verification: { status: string; count: number }[];
+  daily_documents: { date: string; count: number }[];
+  daily_batches: { date: string; count: number }[];
+  document_types: { type: string; count: number }[];
+}
+
+export async function getDashboardStats(): Promise<DashboardStats> {
+  const response = await api.get('/dashboard/stats');
+  return response.data;
+}
+
+// === Dashboard ===
+
+export interface DashboardStats {
+  summary: {
+    total_documents: number;
+    completed_documents: number;
+    failed_documents: number;
+    skipped_documents: number;
+    in_progress_documents: number;
+    total_batches: number;
+    total_candidates: number;
+  };
+  document_status: { status: string; count: number }[];
+  batch_status: { status: string; count: number }[];
+  ownership_verification: { status: string; count: number }[];
+  daily_documents: { date: string; count: number }[];
+  daily_batches: { date: string; count: number }[];
+  document_types: { type: string; count: number }[];
+}
+
+export async function getDashboardStats(): Promise<DashboardStats> {
+  const response = await api.get('/dashboard/stats');
+  return response.data;
+}
+
+export async function startGoogleLogin(redirectUri?: string): Promise<GoogleAuthStartResponse> {
+  const response = await api.get('/auth/google/start', {
+    params: { redirect_uri: redirectUri },
+  });
+  return response.data;
+}
+
+export async function completeGoogleLogin(code: string, state: string): Promise<GoogleAuthCallbackResponse> {
+  const response = await api.post('/auth/google/callback', { code, state });
+  return response.data;
+}
+
+export async function logoutUser(): Promise<{ success: boolean; message: string }> {
+  const response = await api.post('/auth/logout');
   return response.data;
 }
 
