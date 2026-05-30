@@ -104,3 +104,28 @@ class GmailStatusResponse(BaseModel):
 class DriveConfigRequest(BaseModel):
     search_folder_ids: List[str] = []
     storage_root_folder_id: Optional[str] = None
+
+
+class RequiredDocumentRuleRequest(BaseModel):
+    document_name: str
+    category: str
+    is_mandatory: bool = True
+    accepted_formats: List[str] = []
+    sort_order: int = 0
+    is_active: bool = True
+
+
+class RequiredDocumentRuleResponse(BaseModel):
+    id: str
+    document_name: str
+    category: str
+    is_mandatory: bool
+    accepted_formats: List[str]
+    sort_order: int
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class RequiredDocumentChecklistRequest(BaseModel):
+    items: List[RequiredDocumentRuleRequest] = []

@@ -15,8 +15,9 @@ import {
   IntegrationConfig,
   GmailStatus,
   DriveConfig,
+  RequiredDocumentRule,
+  RequiredDocumentChecklistSaveRequest,
 } from '../types';
-import { UploadResponse, DocumentListItem, DocumentDetail, CandidateResponse, ProcessingTimeline, AuditLogEntry, HealthStatus, BatchInfo } from '../types';
 import { GoogleAuthStartResponse, GoogleAuthCallbackResponse } from '../types/auth';
 
 export async function checkHealth(): Promise<HealthStatus> {
@@ -217,6 +218,18 @@ export async function updateDriveConfig(
   data: { search_folder_ids: string[]; storage_root_folder_id: string | null },
 ): Promise<{ status: string; message: string }> {
   const response = await api.put('/settings/integrations/drive/config', data);
+  return response.data;
+}
+
+export async function listRequiredDocuments(): Promise<RequiredDocumentRule[]> {
+  const response = await api.get('/settings/required-documents');
+  return response.data;
+}
+
+export async function saveRequiredDocuments(
+  data: RequiredDocumentChecklistSaveRequest,
+): Promise<RequiredDocumentRule[]> {
+  const response = await api.put('/settings/required-documents', data);
   return response.data;
 }
 
