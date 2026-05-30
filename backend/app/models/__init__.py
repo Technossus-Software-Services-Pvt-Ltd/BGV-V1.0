@@ -13,6 +13,7 @@ from app.models.integration_config import IntegrationConfig
 from app.models.auth_user import AuthUser
 from app.models.auth_session import AuthSession
 from app.models.required_document_rule import RequiredDocumentRule
+from app.models.file_naming_rule import FileNamingRule
 
 __all__ = [
     "Candidate",
@@ -31,4 +32,5 @@ __all__ = [
     "AuthUser",
     "AuthSession",
     "RequiredDocumentRule",
+    "FileNamingRule",
 ]

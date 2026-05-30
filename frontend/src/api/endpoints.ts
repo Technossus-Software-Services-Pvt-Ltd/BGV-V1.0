@@ -17,6 +17,8 @@ import {
   DriveConfig,
   RequiredDocumentRule,
   RequiredDocumentChecklistSaveRequest,
+  FileNamingRule,
+  FileNamingRuleSaveRequest,
 } from '../types';
 import { GoogleAuthStartResponse, GoogleAuthCallbackResponse } from '../types/auth';
 
@@ -230,6 +232,18 @@ export async function saveRequiredDocuments(
   data: RequiredDocumentChecklistSaveRequest,
 ): Promise<RequiredDocumentRule[]> {
   const response = await api.put('/settings/required-documents', data);
+  return response.data;
+}
+
+export async function getFileNamingRule(): Promise<FileNamingRule> {
+  const response = await api.get('/settings/file-naming');
+  return response.data;
+}
+
+export async function saveFileNamingRule(
+  data: FileNamingRuleSaveRequest,
+): Promise<FileNamingRule> {
+  const response = await api.put('/settings/file-naming', data);
   return response.data;
 }
 
