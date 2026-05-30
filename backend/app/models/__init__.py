@@ -10,6 +10,8 @@ from app.models.batch_import import BatchImport
 from app.models.batch_import_candidate import BatchImportCandidate
 from app.models.batch_log import BatchLog
 from app.models.integration_config import IntegrationConfig
+from app.models.auth_user import AuthUser
+from app.models.auth_session import AuthSession
 
 __all__ = [
     "Candidate",
@@ -25,4 +27,6 @@ __all__ = [
     "BatchImportCandidate",
     "BatchLog",
     "IntegrationConfig",
+    "AuthUser",
+    "AuthSession",
 ]

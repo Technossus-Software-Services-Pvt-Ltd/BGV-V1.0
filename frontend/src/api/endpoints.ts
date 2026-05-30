@@ -16,6 +16,8 @@ import {
   GmailStatus,
   DriveConfig,
 } from '../types';
+import { UploadResponse, DocumentListItem, DocumentDetail, CandidateResponse, ProcessingTimeline, AuditLogEntry, HealthStatus, BatchInfo } from '../types';
+import { GoogleAuthStartResponse, GoogleAuthCallbackResponse } from '../types/auth';
 
 export async function checkHealth(): Promise<HealthStatus> {
   const response = await api.get('/health');
@@ -240,5 +242,64 @@ export interface DashboardStats {
 
 export async function getDashboardStats(): Promise<DashboardStats> {
   const response = await api.get('/dashboard/stats');
+  return response.data;
+}
+
+// === Dashboard ===
+
+export interface DashboardStats {
+  summary: {
+    total_documents: number;
+    completed_documents: number;
+    failed_documents: number;
+    skipped_documents: number;
+    in_progress_documents: number;
+    total_batches: number;
+    total_candidates: number;
+  };
+  document_status: { status: string; count: number }[];
+  batch_status: { status: string; count: number }[];
+  ownership_verification: { status: string; count: number }[];
+  daily_documents: { date: string; count: number }[];
+  daily_batches: { date: string; count: number }[];
+  document_types: { type: string; count: number }[];
+}
+
+export async function getDashboardStats(): Promise<DashboardStats> {
+  const response = await api.get('/dashboard/stats');
+  return response.data;
+}
+
+export async function startGoogleLogin(redirectUri?: string): Promise<GoogleAuthStartResponse> {
+  const response = await api.get('/auth/google/start', {
+    params: { redirect_uri: redirectUri },
+  });
+  return response.data;
+}
+
+export async function completeGoogleLogin(code: string, state: string): Promise<GoogleAuthCallbackResponse> {
+  const response = await api.post('/auth/google/callback', { code, state });
+  return response.data;
+}
+
+export async function logoutUser(): Promise<{ success: boolean; message: string }> {
+  const response = await api.post('/auth/logout');
+  return response.data;
+}
+
+export async function startGoogleLogin(redirectUri?: string): Promise<GoogleAuthStartResponse> {
+  const response = await api.get('/auth/google/start', {
+    params: { redirect_uri: redirectUri },
+  });
+  return response.data;
+}
+
+export async function completeGoogleLogin(code: string, state: string): Promise<GoogleAuthCallbackResponse> {
+  const response = await api.post('/auth/google/callback', { code, state });
+  return response.data;
+}
+
+export async function logoutUser(): Promise<{ success: boolean; message: string }> {
+  const response = await api.post('/auth/logout');
   return response.data;
 }

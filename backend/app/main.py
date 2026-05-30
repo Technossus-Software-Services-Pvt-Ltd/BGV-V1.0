@@ -6,10 +6,9 @@ from app.core.config import settings
 from app.core.logging import setup_logging
 from app.db.session import engine
 from app.db.base import Base
-from app.api.routes import upload, documents, candidates, processing, health, batch
+from app.api.routes import upload, documents, candidates, processing, health, batch,auth
 from app.api.routes import settings as settings_routes
 from app.api.routes import dashboard
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -36,6 +35,7 @@ app.add_middleware(
 )
 
 app.include_router(health.router, prefix="/api/v1", tags=["Health"])
+app.include_router(auth.router, prefix="/api/v1", tags=["Auth"])
 app.include_router(upload.router, prefix="/api/v1", tags=["Upload"])
 app.include_router(documents.router, prefix="/api/v1", tags=["Documents"])
 app.include_router(candidates.router, prefix="/api/v1", tags=["Candidates"])
