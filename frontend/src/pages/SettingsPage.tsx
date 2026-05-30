@@ -455,36 +455,36 @@ export default function SettingsPage() {
   const connected = gmailStatus?.connected ?? false;
 
   return (
-    <div className="space-y-6 pb-8">
+    <div className="space-y-6 pb-8 animate-fade-in">
       <div>
-        <h1 className="text-3xl font-bold text-gray-900">Settings</h1>
+        <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Settings</h1>
         <p className="mt-1 text-sm text-gray-500">
           Manage integrations, required document checklist, and file naming rules.
         </p>
       </div>
 
       {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4 flex items-start justify-between gap-4">
-          <p className="text-sm text-red-700">{error}</p>
-          <button onClick={() => setError(null)} className="text-xs font-medium text-red-600 hover:underline">
+        <div className="rounded-xl border border-rose-200/60 bg-rose-50 p-4 flex items-start justify-between gap-4">
+          <p className="text-sm text-rose-700 font-medium">{error}</p>
+          <button onClick={() => setError(null)} className="text-xs font-semibold text-rose-600 hover:text-rose-700">
             Dismiss
           </button>
         </div>
       )}
 
       {success && (
-        <div className="rounded-xl border border-green-200 bg-green-50 p-4 flex items-start justify-between gap-4">
-          <p className="text-sm text-green-700">{success}</p>
-          <button onClick={() => setSuccess(null)} className="text-xs font-medium text-green-600 hover:underline">
+        <div className="rounded-xl border border-emerald-200/60 bg-emerald-50 p-4 flex items-start justify-between gap-4">
+          <p className="text-sm text-emerald-700 font-medium">{success}</p>
+          <button onClick={() => setSuccess(null)} className="text-xs font-semibold text-emerald-600 hover:text-emerald-700">
             Dismiss
           </button>
         </div>
       )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[220px_minmax(0,1fr)]">
-        <aside className="h-fit rounded-3xl border border-gray-200/70 bg-white/95 p-3 shadow-[0_12px_30px_rgba(15,23,42,0.08)] backdrop-blur lg:sticky lg:top-24">
-          <p className="px-3 pb-2 text-xs font-semibold tracking-[0.16em] text-gray-400">SETTINGS</p>
-          <nav className="space-y-2" aria-label="Settings Navigation">
+        <aside className="h-fit rounded-2xl border border-gray-100 bg-white p-3 shadow-card backdrop-blur lg:sticky lg:top-24">
+          <p className="px-3 pb-2 text-[10px] font-bold tracking-[0.2em] text-gray-400 uppercase">SETTINGS</p>
+          <nav className="space-y-1" aria-label="Settings Navigation">
             {SECTION_META.map((item) => {
               const active = activeSection === item.id;
               return (
@@ -493,10 +493,10 @@ export default function SettingsPage() {
                   type="button"
                   onClick={() => handleJumpToSection(item.id)}
                   aria-current={active ? 'page' : undefined}
-                  className={`group flex w-full items-center gap-2 rounded-2xl border px-3 py-2.5 text-left text-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-300 focus-visible:ring-offset-2 ${
+                  className={`group flex w-full items-center gap-2 rounded-xl border px-3 py-2.5 text-left text-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-300 focus-visible:ring-offset-2 ${
                     active
                       ? 'border-primary-100 bg-primary-50 font-semibold text-primary-700 shadow-sm'
-                      : 'border-transparent bg-white text-gray-500 hover:-translate-y-0.5 hover:border-gray-200 hover:bg-gray-50 hover:text-gray-700'
+                      : 'border-transparent bg-white text-gray-500 hover:border-gray-200 hover:bg-gray-50 hover:text-gray-700'
                   }`}
                 >
                   <span className={`${active ? 'text-[#d5c7dc]' : 'text-[#cfc4d9] group-hover:text-[#bca9cd]'}`}>{item.icon}</span>

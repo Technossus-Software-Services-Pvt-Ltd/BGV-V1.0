@@ -214,12 +214,12 @@ export default function UploadPage() {
 
   const statusColor = (status: string) => {
     switch (status) {
-      case 'completed': return 'bg-green-100 text-green-800';
-      case 'processing': case 'discovering': case 'downloading': return 'bg-blue-100 text-blue-800';
-      case 'failed': return 'bg-red-100 text-red-800';
-      case 'pending': return 'bg-gray-100 text-gray-700';
-      case 'skipped': case 'no_documents': return 'bg-yellow-100 text-yellow-800';
-      default: return 'bg-gray-100 text-gray-700';
+      case 'completed': return 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/10';
+      case 'processing': case 'discovering': case 'downloading': return 'bg-sky-50 text-sky-700 ring-1 ring-inset ring-sky-600/10';
+      case 'failed': return 'bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-600/10';
+      case 'pending': return 'bg-gray-50 text-gray-600 ring-1 ring-inset ring-gray-500/10';
+      case 'skipped': case 'no_documents': return 'bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-600/10';
+      default: return 'bg-gray-50 text-gray-600 ring-1 ring-inset ring-gray-500/10';
     }
   };
 
@@ -233,32 +233,29 @@ export default function UploadPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Upload Documents</h1>
-        <div className="flex bg-gray-100 rounded-lg p-0.5">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Upload Documents</h1>
+          <p className="mt-1 text-sm text-gray-500">Import candidates via batch file or manual upload</p>
+        </div>
+        <div className="flex bg-gray-100/80 rounded-xl p-1">
           <button
             onClick={() => setTab('upload')}
-            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
-              tab === 'upload' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
+            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${tab === 'upload' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-900'}`}>
             New Import
           </button>
           <button
             onClick={() => setTab('history')}
-            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
-              tab === 'history' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
+            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${tab === 'history' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-900'}`}>
             History
           </button>
         </div>
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <p className="text-sm text-red-700">{error}</p>
+        <div className="bg-rose-50 border border-rose-200/60 rounded-xl p-4">
+          <p className="text-sm text-rose-700 font-medium">{error}</p>
         </div>
       )}
 
@@ -266,8 +263,8 @@ export default function UploadPage() {
         <div className="space-y-6">
           {/* ====== BATCH IMPORT SECTION ====== */}
           <div className="card">
-            <h2 className="text-lg font-semibold text-gray-900 mb-1">Batch Import</h2>
-            <p className="text-sm text-gray-500 mb-4">
+            <h2 className="text-base font-semibold text-gray-900 mb-1">Batch Import</h2>
+            <p className="text-sm text-gray-500 mb-5">
               Upload an Excel or CSV file with candidate details. Documents will be auto-discovered from Gmail and Google Drive.
             </p>
 
@@ -275,11 +272,13 @@ export default function UploadPage() {
               <>
                 <div
                   onClick={() => batchFileInputRef.current?.click()}
-                  className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-primary-400 hover:bg-primary-50/30 transition-colors"
+                  className="border-2 border-dashed border-gray-200 rounded-2xl p-10 text-center cursor-pointer hover:border-primary-400 hover:bg-primary-50/30 transition-all duration-200 group"
                 >
-                  <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
+                  <div className="mx-auto h-14 w-14 rounded-2xl bg-gray-100 group-hover:bg-primary-100 flex items-center justify-center transition-colors mb-3">
+                    <svg className="h-7 w-7 text-gray-400 group-hover:text-primary-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                  </div>
                   <p className="mt-2 text-sm text-gray-600">
                     {batchFile ? batchFile.name : 'Click to select an Excel (.xlsx) or CSV file'}
                   </p>
@@ -353,29 +352,29 @@ export default function UploadPage() {
 
                 {/* Stats Grid */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <div className="bg-gray-50 rounded-lg p-3 text-center">
-                    <p className="text-2xl font-bold text-gray-900">{activeBatch.total_candidates}</p>
-                    <p className="text-xs text-gray-500">Total Candidates</p>
+                  <div className="bg-gray-50/80 rounded-xl p-4 text-center">
+                    <p className="text-2xl font-bold text-gray-900 tabular-nums">{activeBatch.total_candidates}</p>
+                    <p className="text-[11px] text-gray-500 font-medium uppercase tracking-wide mt-1">Total</p>
                   </div>
-                  <div className="bg-green-50 rounded-lg p-3 text-center">
-                    <p className="text-2xl font-bold text-green-700">{activeBatch.processed_candidates}</p>
-                    <p className="text-xs text-gray-500">Processed</p>
+                  <div className="bg-emerald-50/80 rounded-xl p-4 text-center">
+                    <p className="text-2xl font-bold text-emerald-700 tabular-nums">{activeBatch.processed_candidates}</p>
+                    <p className="text-[11px] text-gray-500 font-medium uppercase tracking-wide mt-1">Processed</p>
                   </div>
-                  <div className="bg-red-50 rounded-lg p-3 text-center">
-                    <p className="text-2xl font-bold text-red-700">{activeBatch.failed_candidates}</p>
-                    <p className="text-xs text-gray-500">Failed</p>
+                  <div className="bg-rose-50/80 rounded-xl p-4 text-center">
+                    <p className="text-2xl font-bold text-rose-700 tabular-nums">{activeBatch.failed_candidates}</p>
+                    <p className="text-[11px] text-gray-500 font-medium uppercase tracking-wide mt-1">Failed</p>
                   </div>
-                  <div className="bg-blue-50 rounded-lg p-3 text-center">
-                    <p className="text-2xl font-bold text-blue-700">{activeBatch.total_documents_found}</p>
-                    <p className="text-xs text-gray-500">Documents Found</p>
+                  <div className="bg-sky-50/80 rounded-xl p-4 text-center">
+                    <p className="text-2xl font-bold text-sky-700 tabular-nums">{activeBatch.total_documents_found}</p>
+                    <p className="text-[11px] text-gray-500 font-medium uppercase tracking-wide mt-1">Documents</p>
                   </div>
                 </div>
 
                 {/* Progress bar */}
                 {activeBatch.total_candidates > 0 && (
-                  <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div className="w-full bg-gray-100 rounded-full h-2">
                     <div
-                      className="bg-primary-600 h-2 rounded-full transition-all duration-500"
+                      className="bg-gradient-to-r from-primary-500 to-primary-600 h-2 rounded-full transition-all duration-500"
                       style={{ width: `${Math.round(((activeBatch.processed_candidates + activeBatch.failed_candidates + activeBatch.skipped_candidates) / activeBatch.total_candidates) * 100)}%` }}
                     />
                   </div>
@@ -387,36 +386,36 @@ export default function UploadPage() {
           {/* Candidates Table */}
           {batchCandidates.length > 0 && (
             <div className="card">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Candidates ({batchCandidates.length})</h2>
+              <h2 className="text-base font-semibold text-gray-900 mb-4">Candidates ({batchCandidates.length})</h2>
               <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">#</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Candidate ID</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Docs</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-100 bg-gray-50/80">
+                      <th className="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">#</th>
+                      <th className="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Candidate ID</th>
+                      <th className="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Name</th>
+                      <th className="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Email</th>
+                      <th className="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                      <th className="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Docs</th>
+                      <th className="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
+                  <tbody className="divide-y divide-gray-50">
                     {batchCandidates.map((c) => (
-                      <tr key={c.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 text-sm text-gray-500">{c.row_number}</td>
-                        <td className="px-4 py-3 text-sm font-medium text-gray-900">{c.source_candidate_id}</td>
-                        <td className="px-4 py-3 text-sm text-gray-700">{c.source_name}</td>
-                        <td className="px-4 py-3 text-sm text-gray-500">{c.source_email || '—'}</td>
-                        <td className="px-4 py-3">
-                          <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${statusColor(c.status)}`}>
+                      <tr key={c.id} className="hover:bg-gray-50/50 transition-colors">
+                        <td className="px-4 py-3.5 text-sm text-gray-500">{c.row_number}</td>
+                        <td className="px-4 py-3.5 text-sm font-medium text-gray-900">{c.source_candidate_id}</td>
+                        <td className="px-4 py-3.5 text-sm text-gray-700">{c.source_name}</td>
+                        <td className="px-4 py-3.5 text-sm text-gray-500">{c.source_email || '—'}</td>
+                        <td className="px-4 py-3.5">
+                          <span className={`inline-block px-2.5 py-1 rounded-lg text-xs font-semibold ${statusColor(c.status)}`}>
                             {c.status}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-sm text-gray-500">
+                        <td className="px-4 py-3.5 text-sm text-gray-500">
                           {c.documents_found > 0 ? `${c.documents_processed}/${c.documents_found}` : '—'}
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-4 py-3.5">
                           {c.status === 'failed' && (
                             <button
                               onClick={() => handleRetryCandidate(c.id)}
@@ -442,8 +441,8 @@ export default function UploadPage() {
           {/* Live Logs */}
           {batchLogs.length > 0 && (
             <div className="card">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Processing Logs</h2>
-              <div className="bg-gray-900 rounded-lg p-4 max-h-80 overflow-y-auto font-mono text-xs">
+              <h2 className="text-base font-semibold text-gray-900 mb-4">Processing Logs</h2>
+              <div className="bg-slate-900 rounded-xl p-4 max-h-80 overflow-y-auto font-mono text-xs">
                 {batchLogs.map((log, i) => (
                   <div key={i} className="py-0.5">
                     <span className="text-gray-500">{log.created_at ? new Date(log.created_at).toLocaleTimeString() : ''}</span>
@@ -497,7 +496,7 @@ export default function UploadPage() {
 
                 <div
                   onClick={() => fileInputRef.current?.click()}
-                  className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center cursor-pointer hover:border-primary-400 transition-colors"
+                  className="border-2 border-dashed border-gray-200 rounded-2xl p-8 text-center cursor-pointer hover:border-primary-400 hover:bg-primary-50/30 transition-all duration-200 group"
                 >
                   <p className="text-sm text-gray-600">Click to select document files</p>
                   <p className="text-xs text-gray-400">PDF, JPEG, PNG up to 15MB each. Max 20 files.</p>
@@ -529,40 +528,40 @@ export default function UploadPage() {
       {/* ====== BATCH HISTORY TAB ====== */}
       {tab === 'history' && (
         <div className="card">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Import History</h2>
+          <h2 className="text-base font-semibold text-gray-900 mb-4">Import History</h2>
           {batchHistory.length === 0 ? (
-            <p className="text-sm text-gray-500 text-center py-8">No batch imports yet.</p>
+            <p className="text-sm text-gray-500 text-center py-12">No batch imports yet.</p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Batch</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">File</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Candidates</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Documents</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-100 bg-gray-50/80">
+                    <th className="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Batch</th>
+                    <th className="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">File</th>
+                    <th className="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                    <th className="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Candidates</th>
+                    <th className="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Documents</th>
+                    <th className="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Created</th>
+                    <th className="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
+                <tbody className="divide-y divide-gray-50">
                   {batchHistory.map((b) => (
-                    <tr key={b.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 text-sm font-medium text-gray-900">{b.batch_code}</td>
-                      <td className="px-4 py-3 text-sm text-gray-500">{b.original_filename}</td>
-                      <td className="px-4 py-3">
-                        <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${statusColor(b.status)}`}>
+                    <tr key={b.id} className="hover:bg-gray-50/50 transition-colors">
+                      <td className="px-4 py-3.5 text-sm font-medium text-gray-900">{b.batch_code}</td>
+                      <td className="px-4 py-3.5 text-sm text-gray-500">{b.original_filename}</td>
+                      <td className="px-4 py-3.5">
+                        <span className={`inline-block px-2.5 py-1 rounded-lg text-xs font-semibold ${statusColor(b.status)}`}>
                           {b.status}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-500">
+                      <td className="px-4 py-3.5 text-sm text-gray-500">
                         {b.processed_candidates}/{b.total_candidates}
-                        {b.failed_candidates > 0 && <span className="text-red-500 ml-1">({b.failed_candidates} failed)</span>}
+                        {b.failed_candidates > 0 && <span className="text-rose-500 ml-1">({b.failed_candidates} failed)</span>}
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-500">{b.total_documents_processed}/{b.total_documents_found}</td>
-                      <td className="px-4 py-3 text-sm text-gray-500">{new Date(b.created_at).toLocaleDateString()}</td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3.5 text-sm text-gray-500">{b.total_documents_processed}/{b.total_documents_found}</td>
+                      <td className="px-4 py-3.5 text-sm text-gray-400">{new Date(b.created_at).toLocaleDateString()}</td>
+                      <td className="px-4 py-3.5">
                         <button
                           onClick={async () => {
                             const detail = await getBatchDetail(b.id);

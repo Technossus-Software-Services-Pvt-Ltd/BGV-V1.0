@@ -102,10 +102,13 @@ export default function AuditPage() {
   if (error) return <ErrorMessage message={error} onRetry={loadBatches} />;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-fade-in">
       {/* Header */}
       <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-gray-900">Audit Logs</h1>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Audit Logs</h1>
+          <p className="mt-1 text-sm text-gray-500">Review batch processing history and logs</p>
+        </div>
       </div>
 
       {/* Filters (visible on batch list, not during drill-down) */}
@@ -194,11 +197,11 @@ function BatchListView({
 }) {
   const statusColor = (s: string) => {
     switch (s) {
-      case 'completed': return 'bg-green-100 text-green-800';
-      case 'completed_with_errors': return 'bg-yellow-100 text-yellow-800';
-      case 'failed': return 'bg-red-100 text-red-800';
-      case 'processing': return 'bg-blue-100 text-blue-800';
-      default: return 'bg-gray-100 text-gray-700';
+      case 'completed': return 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/10';
+      case 'completed_with_errors': return 'bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-600/10';
+      case 'failed': return 'bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-600/10';
+      case 'processing': return 'bg-sky-50 text-sky-700 ring-1 ring-inset ring-sky-600/10';
+      default: return 'bg-gray-50 text-gray-600 ring-1 ring-inset ring-gray-500/10';
     }
   };
 
@@ -208,8 +211,13 @@ function BatchListView({
 
   if (batches.length === 0) {
     return (
-      <div className="card text-center py-12">
-        <p className="text-gray-500">No batches found.</p>
+      <div className="card text-center py-16">
+        <div className="mx-auto h-12 w-12 rounded-2xl bg-gray-100 flex items-center justify-center mb-4">
+          <svg className="h-6 w-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+            <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+          </svg>
+        </div>
+        <p className="text-gray-500 font-medium">No batches found</p>
       </div>
     );
   }
@@ -220,27 +228,27 @@ function BatchListView({
         <button
           key={batch.id}
           onClick={() => onSelect(batch)}
-          className="card text-left hover:ring-2 hover:ring-primary-300 transition-all cursor-pointer"
+          className="card text-left hover:shadow-card-hover hover:border-primary-200 transition-all duration-200 cursor-pointer group"
         >
-          <div className="flex items-center justify-between mb-2">
-            <span className="font-mono text-sm font-semibold text-gray-900">{batch.batch_code}</span>
-            <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColor(batch.status)}`}>
+          <div className="flex items-center justify-between mb-3">
+            <span className="font-mono text-sm font-bold text-gray-900">{batch.batch_code}</span>
+            <span className={`px-2.5 py-1 rounded-lg text-xs font-semibold ${statusColor(batch.status)}`}>
               {batch.status.replace(/_/g, ' ')}
             </span>
           </div>
-          <p className="text-xs text-gray-500 mb-3">{batch.original_filename}</p>
+          <p className="text-xs text-gray-400 mb-4 truncate">{batch.original_filename}</p>
           <div className="grid grid-cols-3 gap-2 text-center">
-            <div>
-              <p className="text-lg font-bold text-gray-900">{batch.total_candidates}</p>
-              <p className="text-xs text-gray-400">Candidates</p>
+            <div className="bg-gray-50/80 rounded-xl py-2">
+              <p className="text-lg font-bold text-gray-900 tabular-nums">{batch.total_candidates}</p>
+              <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">Candidates</p>
             </div>
-            <div>
-              <p className="text-lg font-bold text-green-600">{batch.processed_candidates}</p>
-              <p className="text-xs text-gray-400">Processed</p>
+            <div className="bg-emerald-50/60 rounded-xl py-2">
+              <p className="text-lg font-bold text-emerald-600 tabular-nums">{batch.processed_candidates}</p>
+              <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">Processed</p>
             </div>
-            <div>
-              <p className="text-lg font-bold text-red-600">{batch.failed_candidates}</p>
-              <p className="text-xs text-gray-400">Failed</p>
+            <div className="bg-rose-50/60 rounded-xl py-2">
+              <p className="text-lg font-bold text-rose-600 tabular-nums">{batch.failed_candidates}</p>
+              <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">Failed</p>
             </div>
           </div>
           <p className="text-xs text-gray-400 mt-3">
@@ -293,21 +301,21 @@ function BatchDrillDown({
 
       {/* Batch Summary Header */}
       <div className="card">
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-lg font-semibold text-gray-900">{batch.batch_code}</h2>
+            <h2 className="text-lg font-bold text-gray-900">{batch.batch_code}</h2>
             <p className="text-sm text-gray-500">{batch.original_filename} • {new Date(batch.created_at).toLocaleString()}</p>
           </div>
-          <div className="flex gap-3">
+          <div className="flex gap-2.5">
             {errorCount > 0 && (
-              <span className="flex items-center gap-1 px-2 py-1 bg-red-50 text-red-700 rounded-lg text-xs font-medium">
-                <span className="w-2 h-2 bg-red-500 rounded-full" />
+              <span className="flex items-center gap-1.5 px-2.5 py-1 bg-rose-50 text-rose-700 rounded-lg text-xs font-semibold ring-1 ring-inset ring-rose-600/10">
+                <span className="w-1.5 h-1.5 bg-rose-500 rounded-full" />
                 {errorCount} errors
               </span>
             )}
             {warningCount > 0 && (
-              <span className="flex items-center gap-1 px-2 py-1 bg-yellow-50 text-yellow-700 rounded-lg text-xs font-medium">
-                <span className="w-2 h-2 bg-yellow-500 rounded-full" />
+              <span className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 text-amber-700 rounded-lg text-xs font-semibold ring-1 ring-inset ring-amber-600/10">
+                <span className="w-1.5 h-1.5 bg-amber-500 rounded-full" />
                 {warningCount} warnings
               </span>
             )}
@@ -318,24 +326,14 @@ function BatchDrillDown({
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => onCandidateFilter(null)}
-            className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-              !selectedCandidate ? 'bg-primary-100 text-primary-800' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-          >
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${!selectedCandidate ? 'bg-primary-100 text-primary-800' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
             All ({logs.length})
           </button>
           {candidates.map((c) => (
             <button
               key={c.id}
               onClick={() => onCandidateFilter(c.id)}
-              className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-                selectedCandidate === c.id
-                  ? 'bg-primary-100 text-primary-800'
-                  : c.status === 'failed'
-                  ? 'bg-red-50 text-red-700 hover:bg-red-100'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}
-            >
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${selectedCandidate === c.id ? 'bg-primary-100 text-primary-800' : c.status === 'failed' ? 'bg-rose-50 text-rose-700 hover:bg-rose-100' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
               {c.source_name}
               {c.status === 'failed' && ' ✗'}
               {c.status === 'completed' && ' ✓'}
@@ -369,9 +367,9 @@ function BatchDrillDown({
       {/* Timeline */}
       <div className="card max-h-[60vh] overflow-y-auto">
         {logs.length === 0 ? (
-          <p className="text-sm text-gray-500 text-center py-8">No logs found.</p>
+          <p className="text-sm text-gray-500 text-center py-12">No logs found.</p>
         ) : (
-          <div className="relative pl-6 border-l-2 border-gray-200 space-y-3">
+          <div className="relative pl-6 border-l-2 border-gray-100 space-y-3">
             {logs.map((log) => (
               <LogTimelineItem key={log.id} log={log} candidates={candidates} />
             ))}
@@ -386,22 +384,22 @@ function BatchDrillDown({
 
 function LogTimelineItem({ log, candidates }: { log: BatchLogItem; candidates: BatchCandidate[] }) {
   const levelStyles: Record<string, { dot: string; bg: string }> = {
-    error: { dot: 'bg-red-500', bg: 'bg-red-50 border-red-100' },
-    warning: { dot: 'bg-yellow-500', bg: 'bg-yellow-50 border-yellow-100' },
-    info: { dot: 'bg-blue-500', bg: 'bg-white border-gray-100' },
+    error: { dot: 'bg-rose-500', bg: 'bg-rose-50/80 border-rose-100' },
+    warning: { dot: 'bg-amber-500', bg: 'bg-amber-50/80 border-amber-100' },
+    info: { dot: 'bg-sky-500', bg: 'bg-white border-gray-100' },
   };
   const style = levelStyles[log.level] || levelStyles.info;
   const candidate = candidates.find((c) => c.id === log.batch_candidate_id);
 
   return (
-    <div className={`relative rounded-lg border p-3 ${style.bg}`}>
+    <div className={`relative rounded-xl border p-3.5 ${style.bg}`}>
       {/* Timeline dot */}
-      <div className={`absolute -left-[25px] top-4 w-3 h-3 rounded-full border-2 border-white ${style.dot}`} />
+      <div className={`absolute -left-[25px] top-4 w-3 h-3 rounded-full border-2 border-white shadow-sm ${style.dot}`} />
 
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-gray-200 text-gray-700">
+            <span className="inline-block px-2 py-0.5 rounded-lg text-xs font-semibold bg-gray-100 text-gray-600">
               {log.stage}
             </span>
             {candidate && (
