@@ -58,9 +58,9 @@ class BatchOrchestrator:
             gmail_scanner = await self._get_gmail_scanner()
             drive_service = await self._get_drive_service()
 
-            if not gmail_scanner and not drive_service:
+            if not gmail_scanner:
                 await self._log(batch.id, None, "warning", "orchestrator",
-                                "No integrations configured. Enable Gmail or Google Drive in Settings.")
+                                "No integrations configured. Enable Gmail in Settings.")
                 batch.status = BatchImportStatus.FAILED.value
                 batch.error_message = "No integrations configured"
                 await self.db.commit()
@@ -168,18 +168,19 @@ class BatchOrchestrator:
                     await self._log(batch.id, bc.id, "warning", "gmail",
                                     f"{prefix}: Gmail scan failed: {e}")
 
-            if drive_service:
-                try:
-                    drive_files = drive_service.search_for_candidate(
-                        candidate_name=bc.source_name,
-                        candidate_id=bc.source_candidate_id,
-                    )
-                    bc.drive_files_found = len(drive_files)
-                    await self._log(batch.id, bc.id, "info", "drive",
-                                    f"{prefix}: Found {len(drive_files)} files in Google Drive")
-                except Exception as e:
-                    await self._log(batch.id, bc.id, "warning", "drive",
-                                    f"{prefix}: Drive scan failed: {e}")
+            # Drive discovery (search) is disabled — Drive service is only used for uploads.
+            # if drive_service:
+            #     try:
+            #         drive_files = drive_service.search_for_candidate(
+            #             candidate_name=bc.source_name,
+            #             candidate_id=bc.source_candidate_id,
+            #         )
+            #         bc.drive_files_found = len(drive_files)
+            #         await self._log(batch.id, bc.id, "info", "drive",
+            #                         f"{prefix}: Found {len(drive_files)} files in Google Drive")
+            #     except Exception as e:
+            #         await self._log(batch.id, bc.id, "warning", "drive",
+            #                         f"{prefix}: Drive scan failed: {e}")
 
             total_docs = len(gmail_attachments) + len(drive_files)
             bc.documents_found = total_docs

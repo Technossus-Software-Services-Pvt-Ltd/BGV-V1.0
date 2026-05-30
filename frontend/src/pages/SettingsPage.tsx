@@ -70,7 +70,7 @@ export default function SettingsPage() {
   const [disconnecting, setDisconnecting] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ status: string; message: string } | null>(null);
-  const [searchFolderInput, setSearchFolderInput] = useState('');
+
   const [storageRootInput, setStorageRootInput] = useState('');
   const [savingDrive, setSavingDrive] = useState(false);
   const [isEditingDrive, setIsEditingDrive] = useState(false);
@@ -95,7 +95,6 @@ export default function SettingsPage() {
         getFileNamingRule(),
       ]);
       setGmailStatus(status);
-      setSearchFolderInput(drive.search_folder_ids.join(', '));
       setStorageRootInput(drive.storage_root_folder_id || '');
       setFolderStructurePattern(namingRule.folder_structure_pattern);
       setFileRenamePattern(namingRule.file_rename_pattern);
@@ -214,8 +213,7 @@ export default function SettingsPage() {
     setSavingDrive(true);
     setError(null);
     try {
-      const ids = searchFolderInput.split(',').map((s: string) => s.trim()).filter(Boolean);
-      await updateDriveConfig({ search_folder_ids: ids, storage_root_folder_id: storageRootInput.trim() || null });
+      await updateDriveConfig({ search_folder_ids: [], storage_root_folder_id: storageRootInput.trim() || null });
       setSuccess('Drive configuration saved');
       await loadStatus();
       setIsEditingDrive(false);
@@ -643,19 +641,6 @@ export default function SettingsPage() {
                         <span className="font-medium text-gray-800 text-right">My Drive</span>
                       </div>
                       <div className="flex items-center justify-between gap-2">
-                        <label htmlFor="searchFolders" className="text-gray-500">
-                          Source Folder
-                        </label>
-                        <input
-                          id="searchFolders"
-                          type="text"
-                          value={searchFolderInput}
-                          onChange={(e) => setSearchFolderInput(e.target.value)}
-                          className="w-[60%] rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-right text-sm font-medium text-gray-800 focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-200"
-                          placeholder="/Candidates"
-                        />
-                      </div>
-                      <div className="flex items-center justify-between gap-2">
                         <label htmlFor="storageRoot" className="text-gray-500">
                           Destination Folder
                         </label>
@@ -692,10 +677,6 @@ export default function SettingsPage() {
                       <div className="flex items-start justify-between gap-2">
                         <span className="text-gray-500">Shared Drive</span>
                         <span className="font-medium text-gray-800 text-right">My Drive</span>
-                      </div>
-                      <div className="flex items-start justify-between gap-2">
-                        <span className="text-gray-500">Source Folder</span>
-                        <span className="font-medium text-gray-800 text-right break-all">{searchFolderInput || 'Not configured'}</span>
                       </div>
                       <div className="flex items-start justify-between gap-2">
                         <span className="text-gray-500">Destination Folder</span>
