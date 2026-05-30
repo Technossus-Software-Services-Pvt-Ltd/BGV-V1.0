@@ -8,10 +8,12 @@ import {
   validateIntegration,
   listRequiredDocuments,
   saveRequiredDocuments,
+  getFileNamingRule,
+  saveFileNamingRule,
 } from '../api/endpoints';
 import { GmailStatus, RequiredDocumentRuleInput } from '../types';
 
-type SectionId = 'integrations' | 'document-rules';
+type SectionId = 'integrations' | 'document-rules' | 'file-naming';
 
 type ChecklistRow = RequiredDocumentRuleInput & { local_id: string };
 
@@ -51,12 +53,14 @@ function groupByCategory(rows: ChecklistRow[]): Map<string, ChecklistRow[]> {
 const SECTION_META: { id: SectionId; label: string; icon: string }[] = [
   { id: 'integrations', label: 'Integrations', icon: '🔗' },
   { id: 'document-rules', label: 'Document Rules', icon: '📄' },
+  { id: 'file-naming', label: 'File Naming', icon: '📁' },
 ];
 
 export default function SettingsPage() {
   const sectionRefs = useRef<Record<SectionId, HTMLElement | null>>({
     integrations: null,
     'document-rules': null,
+    'file-naming': null,
   });
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -69,24 +73,33 @@ export default function SettingsPage() {
   const [searchFolderInput, setSearchFolderInput] = useState('');
   const [storageRootInput, setStorageRootInput] = useState('');
   const [savingDrive, setSavingDrive] = useState(false);
+  const [isEditingDrive, setIsEditingDrive] = useState(false);
   const [checklistRows, setChecklistRows] = useState<ChecklistRow[]>([]);
   const [editingRowId, setEditingRowId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<ChecklistRow | null>(null);
   const [savingChecklist, setSavingChecklist] = useState(false);
+  const [folderStructurePattern, setFolderStructurePattern] = useState('');
+  const [fileRenamePattern, setFileRenamePattern] = useState('');
+  const [fileNamingExample, setFileNamingExample] = useState('');
+  const [savingFileNaming, setSavingFileNaming] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
   const loadStatus = useCallback(async () => {
     try {
-      const [status, drive, requiredDocs] = await Promise.all([
+      const [status, drive, requiredDocs, namingRule] = await Promise.all([
         getGmailStatus(),
         getDriveConfig(),
         listRequiredDocuments(),
+        getFileNamingRule(),
       ]);
       setGmailStatus(status);
       setSearchFolderInput(drive.search_folder_ids.join(', '));
       setStorageRootInput(drive.storage_root_folder_id || '');
+      setFolderStructurePattern(namingRule.folder_structure_pattern);
+      setFileRenamePattern(namingRule.file_rename_pattern);
+      setFileNamingExample(namingRule.example_output);
       setChecklistRows(
         requiredDocs.length === 0
           ? DEFAULT_CHECKLIST
@@ -112,20 +125,33 @@ export default function SettingsPage() {
   useEffect(() => { loadStatus(); }, [loadStatus]);
 
   useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visible = entries
-          .filter((e) => e.isIntersecting)
-          .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
-        if (visible.length > 0) setActiveSection(visible[0].target.id as SectionId);
-      },
-      { root: null, threshold: [0.2, 0.5, 0.75], rootMargin: '-20% 0px -50% 0px' },
-    );
-    for (const section of SECTION_META) {
-      const el = sectionRefs.current[section.id];
-      if (el) observer.observe(el);
-    }
-    return () => observer.disconnect();
+    const syncActiveSectionByScroll = () => {
+      const activationOffset = 180;
+      let nextActive: SectionId = SECTION_META[0].id;
+
+      for (const section of SECTION_META) {
+        const element = sectionRefs.current[section.id];
+        if (!element) {
+          continue;
+        }
+        if (element.getBoundingClientRect().top <= activationOffset) {
+          nextActive = section.id;
+        } else {
+          break;
+        }
+      }
+
+      setActiveSection((current) => (current === nextActive ? current : nextActive));
+    };
+
+    syncActiveSectionByScroll();
+    window.addEventListener('scroll', syncActiveSectionByScroll, { passive: true });
+    window.addEventListener('resize', syncActiveSectionByScroll);
+
+    return () => {
+      window.removeEventListener('scroll', syncActiveSectionByScroll);
+      window.removeEventListener('resize', syncActiveSectionByScroll);
+    };
   }, []);
 
   useEffect(() => {
@@ -192,6 +218,7 @@ export default function SettingsPage() {
       await updateDriveConfig({ search_folder_ids: ids, storage_root_folder_id: storageRootInput.trim() || null });
       setSuccess('Drive configuration saved');
       await loadStatus();
+      setIsEditingDrive(false);
     } catch {
       setError('Failed to save Drive configuration');
     } finally {
@@ -298,6 +325,33 @@ export default function SettingsPage() {
     }
   };
 
+  const handleSaveFileNaming = async () => {
+    const normalizedFolderPattern = folderStructurePattern.trim();
+    const normalizedFilePattern = fileRenamePattern.trim();
+
+    if (!normalizedFolderPattern || !normalizedFilePattern) {
+      setError('Folder and file naming patterns are required');
+      return;
+    }
+
+    setSavingFileNaming(true);
+    setError(null);
+    try {
+      const saved = await saveFileNamingRule({
+        folder_structure_pattern: normalizedFolderPattern,
+        file_rename_pattern: normalizedFilePattern,
+      });
+      setFolderStructurePattern(saved.folder_structure_pattern);
+      setFileRenamePattern(saved.file_rename_pattern);
+      setFileNamingExample(saved.example_output);
+      setSuccess('File naming rules saved');
+    } catch {
+      setError('Failed to save file naming rules');
+    } finally {
+      setSavingFileNaming(false);
+    }
+  };
+
   const handleDownloadTemplate = () => {
     const rows = checklistRows.length > 0 ? checklistRows : DEFAULT_CHECKLIST;
     const csv = [
@@ -388,6 +442,7 @@ export default function SettingsPage() {
   };
 
   const handleJumpToSection = (sectionId: SectionId) => {
+    setActiveSection(sectionId);
     sectionRefs.current[sectionId]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
@@ -429,9 +484,9 @@ export default function SettingsPage() {
       )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[220px_minmax(0,1fr)]">
-        <aside className="h-fit rounded-2xl border border-gray-100 bg-white p-3 shadow-sm lg:sticky lg:top-24">
+        <aside className="h-fit rounded-3xl border border-gray-200/70 bg-white/95 p-3 shadow-[0_12px_30px_rgba(15,23,42,0.08)] backdrop-blur lg:sticky lg:top-24">
           <p className="px-3 pb-2 text-xs font-semibold tracking-[0.16em] text-gray-400">SETTINGS</p>
-          <nav className="space-y-1" aria-label="Settings Navigation">
+          <nav className="space-y-2" aria-label="Settings Navigation">
             {SECTION_META.map((item) => {
               const active = activeSection === item.id;
               return (
@@ -439,13 +494,14 @@ export default function SettingsPage() {
                   key={item.id}
                   type="button"
                   onClick={() => handleJumpToSection(item.id)}
-                  className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors ${
+                  aria-current={active ? 'page' : undefined}
+                  className={`group flex w-full items-center gap-2 rounded-2xl border px-3 py-2.5 text-left text-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-300 focus-visible:ring-offset-2 ${
                     active
-                      ? 'bg-primary-50 font-medium text-primary-700'
-                      : 'text-gray-500 hover:bg-gray-50'
+                      ? 'border-primary-100 bg-primary-50 font-semibold text-primary-700 shadow-sm'
+                      : 'border-transparent bg-white text-gray-500 hover:-translate-y-0.5 hover:border-gray-200 hover:bg-gray-50 hover:text-gray-700'
                   }`}
                 >
-                  <span>{item.icon}</span>
+                  <span className={`${active ? 'text-[#d5c7dc]' : 'text-[#cfc4d9] group-hover:text-[#bca9cd]'}`}>{item.icon}</span>
                   <span>{item.label}</span>
                 </button>
               );
@@ -462,8 +518,16 @@ export default function SettingsPage() {
             className="space-y-4 scroll-mt-24"
           >
             <div>
-              <h2 className="text-2xl font-semibold text-gray-900">Source Integrations</h2>
-              <p className="text-sm text-gray-500">
+              <h2 className="flex items-center gap-2 text-xl font-semibold text-gray-900">
+                <span className="inline-flex items-center text-base text-[#d5c7dc]" aria-hidden="true">
+                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9">
+                    <path d="M10 13a5 5 0 0 1 0-7l1.6-1.6a5 5 0 0 1 7 7L17 13" />
+                    <path d="M14 11a5 5 0 0 1 0 7l-1.6 1.6a5 5 0 1 1-7-7L7 11" />
+                  </svg>
+                </span>
+                <span>Source Integrations</span>
+              </h2>
+              <p className="mt-0.5 text-sm text-gray-500">
                 Connect Gmail or Google Drive to automatically ingest candidate documents.
               </p>
             </div>
@@ -572,43 +636,82 @@ export default function SettingsPage() {
                     </div>
                   </div>
 
-                  <div className="space-y-3">
-                    <div>
-                      <label htmlFor="searchFolders" className="mb-1 block text-sm font-medium text-gray-700">
-                        Source Folder IDs
-                      </label>
-                      <input
-                        id="searchFolders"
-                        type="text"
-                        value={searchFolderInput}
-                        onChange={(e) => setSearchFolderInput(e.target.value)}
-                        className="input-field"
-                        placeholder="folder-id-1, folder-id-2"
-                      />
-                    </div>
+                  {isEditingDrive ? (
+                    <div className="space-y-2 rounded-xl bg-gray-50 p-3 text-sm">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-gray-500">Shared Drive</span>
+                        <span className="font-medium text-gray-800 text-right">My Drive</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <label htmlFor="searchFolders" className="text-gray-500">
+                          Source Folder
+                        </label>
+                        <input
+                          id="searchFolders"
+                          type="text"
+                          value={searchFolderInput}
+                          onChange={(e) => setSearchFolderInput(e.target.value)}
+                          className="w-[60%] rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-right text-sm font-medium text-gray-800 focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-200"
+                          placeholder="/Candidates"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <label htmlFor="storageRoot" className="text-gray-500">
+                          Destination Folder
+                        </label>
+                        <input
+                          id="storageRoot"
+                          type="text"
+                          value={storageRootInput}
+                          onChange={(e) => setStorageRootInput(e.target.value)}
+                          className="w-[60%] rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-right text-sm font-medium text-gray-800 focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-200"
+                          placeholder="/DocHire-output"
+                        />
+                      </div>
 
-                    <div>
-                      <label htmlFor="storageRoot" className="mb-1 block text-sm font-medium text-gray-700">
-                        Destination Folder ID
-                      </label>
-                      <input
-                        id="storageRoot"
-                        type="text"
-                        value={storageRootInput}
-                        onChange={(e) => setStorageRootInput(e.target.value)}
-                        className="input-field"
-                        placeholder="folder-id"
-                      />
+                      <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <button
+                          onClick={handleSaveDriveConfig}
+                          disabled={savingDrive}
+                          className="rounded-lg border border-primary-200 bg-primary-50 px-3 py-2 text-sm font-medium text-primary-700 hover:bg-primary-100 disabled:opacity-50"
+                        >
+                          {savingDrive ? 'Saving...' : 'Save'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setIsEditingDrive(false)}
+                          disabled={savingDrive}
+                          className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50"
+                        >
+                          Cancel
+                        </button>
+                      </div>
                     </div>
+                  ) : (
+                    <div className="space-y-2 rounded-xl bg-gray-50 p-3 text-sm">
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="text-gray-500">Shared Drive</span>
+                        <span className="font-medium text-gray-800 text-right">My Drive</span>
+                      </div>
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="text-gray-500">Source Folder</span>
+                        <span className="font-medium text-gray-800 text-right break-all">{searchFolderInput || 'Not configured'}</span>
+                      </div>
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="text-gray-500">Destination Folder</span>
+                        <span className="font-medium text-gray-800 text-right break-all">{storageRootInput || 'Not configured'}</span>
+                      </div>
 
-                    <button
-                      onClick={handleSaveDriveConfig}
-                      disabled={savingDrive}
-                      className="w-full rounded-lg border border-primary-200 bg-primary-50 px-3 py-2 text-sm font-medium text-primary-700 hover:bg-primary-100 disabled:opacity-50"
-                    >
-                      {savingDrive ? 'Saving...' : 'Save Drive Rules'}
-                    </button>
-                  </div>
+                      <button
+                        type="button"
+                        onClick={() => setIsEditingDrive(true)}
+                        className="mt-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
+                      >
+                        <span className="mr-1.5 text-orange-500" aria-hidden="true">✏️</span>
+                        Edit Folder Paths
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -839,6 +942,69 @@ export default function SettingsPage() {
                   className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50"
                 >
                   {savingChecklist ? 'Saving...' : 'Save Checklist'}
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <section
+            id="file-naming"
+            ref={(element) => {
+              sectionRefs.current['file-naming'] = element;
+            }}
+            className="space-y-4 scroll-mt-24"
+          >
+            <div>
+              <h2 className="flex items-center gap-2 text-xl font-semibold text-gray-900">
+                <span className="text-base">📁</span> File Naming Rules
+              </h2>
+              <p className="mt-0.5 text-sm text-gray-500">
+                Configure automatic file naming conventions.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div>
+                  <label htmlFor="folderStructurePattern" className="mb-1 block text-sm font-medium text-gray-700">
+                    Folder Structure Pattern
+                  </label>
+                  <input
+                    id="folderStructurePattern"
+                    type="text"
+                    value={folderStructurePattern}
+                    onChange={(event) => setFolderStructurePattern(event.target.value)}
+                    className="input-field"
+                    placeholder="{CandidateID}_{FirstName}_{Date}"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="fileRenamePattern" className="mb-1 block text-sm font-medium text-gray-700">
+                    File Rename Pattern
+                  </label>
+                  <input
+                    id="fileRenamePattern"
+                    type="text"
+                    value={fileRenamePattern}
+                    onChange={(event) => setFileRenamePattern(event.target.value)}
+                    className="input-field"
+                    placeholder="{CandidateID}_{FirstName}_{DocType}"
+                  />
+                </div>
+              </div>
+
+              <div className="mt-4 rounded-xl border border-primary-100 bg-primary-50/60 px-3 py-2 text-sm text-primary-700">
+                <span className="font-medium">Example:</span> {fileNamingExample || 'Preview will appear after save'}
+              </div>
+
+              <div className="mt-4 flex justify-end">
+                <button
+                  type="button"
+                  onClick={handleSaveFileNaming}
+                  disabled={savingFileNaming}
+                  className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50"
+                >
+                  {savingFileNaming ? 'Saving...' : 'Save Rules'}
                 </button>
               </div>
             </div>

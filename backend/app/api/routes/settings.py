@@ -19,9 +19,12 @@ from app.schemas.batch import (
     IntegrationConfigUpdateRequest,
     GmailStatusResponse,
     DriveConfigRequest,
+    FileNamingRuleRequest,
+    FileNamingRuleResponse,
     RequiredDocumentChecklistRequest,
     RequiredDocumentRuleResponse,
 )
+from app.services.settings import FileNamingRuleService
 from app.core.config import settings as app_settings
 from app.core.logging import get_logger
 
@@ -371,6 +374,52 @@ async def save_required_documents(
         )
         for rule in rules
     ]
+
+
+@router.get("/file-naming", response_model=FileNamingRuleResponse)
+async def get_file_naming_rule(db: AsyncSession = Depends(get_db)):
+    """Get active file naming rule configuration for UI display and editing."""
+    rule = await FileNamingRuleService.get_active_rule(db)
+    return FileNamingRuleResponse(
+        id=rule.id,
+        folder_structure_pattern=rule.folder_structure_pattern,
+        file_rename_pattern=rule.file_rename_pattern,
+        example_output=rule.example_output,
+        is_active=rule.is_active,
+        created_at=rule.created_at,
+        updated_at=rule.updated_at,
+    )
+
+
+@router.put("/file-naming", response_model=FileNamingRuleResponse)
+async def save_file_naming_rule(
+    body: FileNamingRuleRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Save active file naming rule configuration."""
+    folder_pattern = body.folder_structure_pattern.strip()
+    file_pattern = body.file_rename_pattern.strip()
+
+    if not folder_pattern or not file_pattern:
+        raise HTTPException(status_code=400, detail="Both file naming patterns are required")
+
+    saved = await FileNamingRuleService.save_rule(
+        db=db,
+        folder_structure_pattern=folder_pattern,
+        file_rename_pattern=file_pattern,
+    )
+
+    logger.info("file_naming_rule_saved", rule_id=saved.id)
+
+    return FileNamingRuleResponse(
+        id=saved.id,
+        folder_structure_pattern=saved.folder_structure_pattern,
+        file_rename_pattern=saved.file_rename_pattern,
+        example_output=saved.example_output,
+        is_active=saved.is_active,
+        created_at=saved.created_at,
+        updated_at=saved.updated_at,
+    )
 
 
 # ─── Legacy generic endpoints (kept for compatibility) ───────────────

@@ -129,3 +129,18 @@ class RequiredDocumentRuleResponse(BaseModel):
 
 class RequiredDocumentChecklistRequest(BaseModel):
     items: List[RequiredDocumentRuleRequest] = []
+
+
+class FileNamingRuleRequest(BaseModel):
+    folder_structure_pattern: str
+    file_rename_pattern: str
+
+
+class FileNamingRuleResponse(BaseModel):
+    id: str
+    folder_structure_pattern: str
+    file_rename_pattern: str
+    example_output: str
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime

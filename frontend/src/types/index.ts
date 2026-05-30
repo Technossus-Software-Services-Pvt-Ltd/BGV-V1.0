@@ -287,3 +287,18 @@ export interface RequiredDocumentRuleInput {
 export interface RequiredDocumentChecklistSaveRequest {
   items: RequiredDocumentRuleInput[];
 }
+
+export interface FileNamingRule {
+  id: string;
+  folder_structure_pattern: string;
+  file_rename_pattern: string;
+  example_output: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FileNamingRuleSaveRequest {
+  folder_structure_pattern: string;
+  file_rename_pattern: string;
+}
