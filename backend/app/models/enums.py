@@ -98,3 +98,9 @@ class BatchCandidateStatus(str, enum.Enum):
 class IntegrationProvider(str, enum.Enum):
     GMAIL = "gmail"
     GOOGLE_DRIVE = "google_drive"
+
+
+class NotificationStatus(str, enum.Enum):
+    QUEUED = "queued"
+    SENT = "sent"
+    FAILED = "failed"

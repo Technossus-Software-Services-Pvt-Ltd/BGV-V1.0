@@ -1,13 +1,20 @@
-from fastapi import APIRouter, Depends, Query
+import asyncio
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Optional
+from typing import Optional, List
 
 from app.api.deps import get_db
 from app.models.batch_import_candidate import BatchImportCandidate
 from app.models.batch_import import BatchImport
+from app.models.notification_log import NotificationLog
 from app.models.enums import BatchCandidateStatus
 from app.schemas.review_queue import ReviewQueueResponse, ReviewQueueItem
+from app.schemas.notification import NotifyRequest, NotifyResponse, NotificationLogItem
+from app.services.notifications.email_service import NotificationService
+from app.core.logging import get_logger
+
+logger = get_logger("api.review_queue")
 
 router = APIRouter()
 
@@ -64,6 +71,19 @@ async def list_review_queue(
     )
     rows = results.all()
 
+    # Get latest notification status per candidate
+    candidate_ids = [row[0].id for row in rows]
+    notification_map = {}
+    if candidate_ids:
+        notif_result = await db.execute(
+            select(NotificationLog)
+            .where(NotificationLog.candidate_id.in_(candidate_ids))
+            .order_by(NotificationLog.created_at.desc())
+        )
+        for notif in notif_result.scalars().all():
+            if notif.candidate_id not in notification_map:
+                notification_map[notif.candidate_id] = notif
+
     items = [
         ReviewQueueItem(
             id=bc.id,
@@ -77,6 +97,8 @@ async def list_review_queue(
             documents_found=bc.documents_found,
             documents_processed=bc.documents_processed,
             error_message=bc.error_message,
+            notification_status=notification_map[bc.id].status if bc.id in notification_map else None,
+            notification_sent_at=notification_map[bc.id].sent_at if bc.id in notification_map else None,
             created_at=bc.created_at,
             updated_at=bc.updated_at,
         )
@@ -84,3 +106,99 @@ async def list_review_queue(
     ]
 
     return ReviewQueueResponse(items=items, total=total)
+
+
+@router.post("/review-queue/notify", response_model=NotifyResponse, status_code=202)
+async def notify_candidates(
+    request: NotifyRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Queue email notifications for selected review queue candidates."""
+    logger.info("notify_request_received", candidate_count=len(request.candidate_ids))
+
+    if not request.candidate_ids:
+        logger.warning("notify_request_empty", detail="No candidate IDs provided")
+        raise HTTPException(status_code=400, detail="No candidate IDs provided")
+
+    if len(request.candidate_ids) > 100:
+        logger.warning("notify_request_too_large", count=len(request.candidate_ids))
+        raise HTTPException(status_code=400, detail="Maximum 100 candidates per request")
+
+    # Validate candidates exist and have reviewable status
+    result = await db.execute(
+        select(BatchImportCandidate).where(
+            BatchImportCandidate.id.in_(request.candidate_ids),
+            BatchImportCandidate.status.in_(REVIEW_STATUSES),
+        )
+    )
+    valid_candidates = list(result.scalars().all())
+    valid_with_email = [c for c in valid_candidates if c.source_email]
+
+    skipped = len(request.candidate_ids) - len(valid_with_email)
+
+    logger.info("notify_validation", valid=len(valid_candidates), with_email=len(valid_with_email), skipped=skipped)
+
+    if not valid_with_email:
+        logger.warning("notify_no_valid_candidates", total_requested=len(request.candidate_ids))
+        return NotifyResponse(
+            queued=0,
+            skipped=skipped,
+            message="No valid candidates with email addresses found",
+        )
+
+    # Queue notifications
+    log_ids = await NotificationService.queue_notifications(
+        db, [c.id for c in valid_with_email]
+    )
+
+    # Fire background task - does NOT block the response
+    logger.info("notify_queued", log_ids=log_ids, count=len(log_ids))
+    asyncio.create_task(NotificationService.send_notifications_background(log_ids))
+
+    return NotifyResponse(
+        queued=len(log_ids),
+        skipped=skipped,
+        message=f"Emails queued for {len(log_ids)} candidate(s)",
+    )
+
+
+@router.get("/review-queue/notifications/{candidate_id}", response_model=List[NotificationLogItem])
+async def get_candidate_notifications(
+    candidate_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get notification history for a specific candidate."""
+    result = await db.execute(
+        select(NotificationLog)
+        .where(NotificationLog.candidate_id == candidate_id)
+        .order_by(NotificationLog.created_at.desc())
+    )
+    logs = result.scalars().all()
+    return [NotificationLogItem.model_validate(log) for log in logs]
+
+
+@router.post("/review-queue/notify/retry/{notification_id}", status_code=202)
+async def retry_notification(
+    notification_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Retry a failed notification."""
+    logger.info("notify_retry_requested", notification_id=notification_id)
+    result = await db.execute(
+        select(NotificationLog).where(NotificationLog.id == notification_id)
+    )
+    log_entry = result.scalar_one_or_none()
+    if not log_entry:
+        logger.warning("notify_retry_not_found", notification_id=notification_id)
+        raise HTTPException(status_code=404, detail="Notification not found")
+
+    if log_entry.status != "failed":
+        raise HTTPException(status_code=400, detail="Only failed notifications can be retried")
+
+    log_entry.status = "queued"
+    log_entry.error_message = None
+    await db.commit()
+
+    asyncio.create_task(NotificationService.send_notifications_background([log_entry.id]))
+
+    return {"message": "Notification retry queued"}

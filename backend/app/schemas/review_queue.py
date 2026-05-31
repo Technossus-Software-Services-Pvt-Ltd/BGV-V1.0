@@ -15,6 +15,8 @@ class ReviewQueueItem(BaseModel):
     documents_found: int
     documents_processed: int
     error_message: Optional[str]
+    notification_status: Optional[str]
+    notification_sent_at: Optional[datetime]
     created_at: datetime
     updated_at: datetime
 

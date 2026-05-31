@@ -302,3 +302,18 @@ export async function getReviewQueue(params?: {
   const response = await api.get('/review-queue', { params });
   return response.data;
 }
+
+export async function notifyReviewCandidates(candidateIds: string[]): Promise<{ queued: number; skipped: number; message: string }> {
+  const response = await api.post('/review-queue/notify', { candidate_ids: candidateIds });
+  return response.data;
+}
+
+export async function getNotificationHistory(candidateId: string): Promise<any[]> {
+  const response = await api.get(`/review-queue/notifications/${candidateId}`);
+  return response.data;
+}
+
+export async function retryNotification(notificationId: string): Promise<{ message: string }> {
+  const response = await api.post(`/review-queue/notify/retry/${notificationId}`);
+  return response.data;
+}
