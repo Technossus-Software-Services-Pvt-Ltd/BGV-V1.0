@@ -27,6 +27,7 @@ from app.services.processing.pipeline import ProcessingPipeline
 from app.services.audit.logger import AuditService
 from app.services.settings.file_naming_service import FileNamingRuleService
 from app.models.classification import AIClassification
+from app.models.required_document_rule import RequiredDocumentRule
 from app.core.config import settings
 from app.core.logging import get_logger
 
@@ -258,8 +259,16 @@ class BatchOrchestrator:
                             f"{prefix}: Processing {len(document_ids)} documents through pipeline")
             await self.db.flush()
 
+            # Load required document checklist for filtering
+            required_rules = await self._get_required_document_rules()
+            mandatory_doc_names = {
+                self._normalize_doc_type(r.document_name)
+                for r in required_rules if r.is_mandatory
+            }
+
             pipeline = ProcessingPipeline(self.db)
             confirmed_doc_ids = []
+            uploaded_doc_types = set()  # Track which required doc types have been uploaded
 
             for doc_id in document_ids:
                 try:
@@ -276,11 +285,21 @@ class BatchOrchestrator:
                     )
                     if vr_result.scalar_one_or_none():
                         confirmed_doc_ids.append(doc_id)
-                        # Upload to Drive immediately — create folder lazily on first confirmed doc
-                        if drive_service:
-                            drive_service, storage_folder_id = await self._upload_to_drive(
-                                drive_service, storage_folder_id, batch, bc, doc_id, prefix
-                            )
+
+                        # Check if document type matches required checklist
+                        doc_type = await self._get_document_type(doc_id)
+                        normalized_type = self._normalize_doc_type(doc_type)
+
+                        if not mandatory_doc_names or self._doc_type_matches_checklist(normalized_type, mandatory_doc_names):
+                            # Upload to Drive: either matches required list, or no checklist configured
+                            if drive_service:
+                                drive_service, storage_folder_id = await self._upload_to_drive(
+                                    drive_service, storage_folder_id, batch, bc, doc_id, prefix
+                                )
+                            uploaded_doc_types.add(normalized_type)
+                        else:
+                            await self._log(batch.id, bc.id, "info", "checklist",
+                                            f"{prefix}: '{doc_type}' not in required document checklist - skipping upload")
                     else:
                         await self._log(batch.id, bc.id, "warning", "ownership",
                                         f"{prefix}: Document {doc_id} failed ownership verification - not uploaded")
@@ -291,8 +310,6 @@ class BatchOrchestrator:
                                     f"{prefix}: Pipeline failed for document {doc_id}: {e}")
 
             # === POST-PROCESSING STATUS UPDATE ===
-            # unconfirmed = pipeline successes that failed ownership validation
-            # (bc.documents_processed counts pipeline successes before overwrite below)
             unconfirmed_count = bc.documents_processed - len(confirmed_doc_ids)
 
             if not confirmed_doc_ids:
@@ -303,17 +320,43 @@ class BatchOrchestrator:
                                 f"{prefix}: Ownership not confirmed for any document. Marking as no documents found.")
                 await self.db.flush()
             else:
-                bc.documents_found = len(confirmed_doc_ids)
-                bc.documents_processed = len(confirmed_doc_ids)
+                # Determine status based on required document checklist coverage
+                matched_mandatory, missing_mandatory = self._get_matched_mandatory(uploaded_doc_types, mandatory_doc_names)
 
-                upload_batch.processed_files = len(confirmed_doc_ids)
+                bc.documents_found = len(confirmed_doc_ids)
+                bc.documents_processed = len(uploaded_doc_types) if mandatory_doc_names else len(confirmed_doc_ids)
+
+                upload_batch.processed_files = len(uploaded_doc_types) if mandatory_doc_names else len(confirmed_doc_ids)
                 upload_batch.failed_files = bc.documents_failed + unconfirmed_count
                 upload_batch.processing_status = ProcessingStatus.COMPLETED.value
 
-                bc.status = BatchCandidateStatus.COMPLETED.value
-                await self._log(batch.id, bc.id, "info", "complete",
-                                f"{prefix}: Completed. {len(confirmed_doc_ids)} verified & uploaded, "
-                                f"{unconfirmed_count} rejected (ownership), {bc.documents_failed} failed")
+                if not mandatory_doc_names:
+                    # No checklist configured — all ownership-confirmed docs uploaded
+                    bc.status = BatchCandidateStatus.COMPLETED.value
+                    await self._log(batch.id, bc.id, "info", "complete",
+                                    f"{prefix}: Completed. {len(confirmed_doc_ids)} verified & uploaded, "
+                                    f"{unconfirmed_count} rejected (ownership), {bc.documents_failed} failed")
+                elif missing_mandatory and not matched_mandatory:
+                    # No required documents matched at all
+                    bc.status = BatchCandidateStatus.AWAITING_REQUIRED_DOCUMENTS.value
+                    missing_names = [r.document_name for r in required_rules
+                                     if r.is_mandatory and self._normalize_doc_type(r.document_name) in missing_mandatory]
+                    await self._log(batch.id, bc.id, "warning", "checklist",
+                                    f"{prefix}: No required documents found. Missing: {', '.join(missing_names)}")
+                elif missing_mandatory:
+                    # Some required documents found but not all
+                    bc.status = BatchCandidateStatus.PARTIAL.value
+                    missing_names = [r.document_name for r in required_rules
+                                     if r.is_mandatory and self._normalize_doc_type(r.document_name) in missing_mandatory]
+                    await self._log(batch.id, bc.id, "warning", "checklist",
+                                    f"{prefix}: Partial. {len(matched_mandatory)}/{len(mandatory_doc_names)} mandatory docs. "
+                                    f"Missing: {', '.join(missing_names)}")
+                else:
+                    # All mandatory documents satisfied
+                    bc.status = BatchCandidateStatus.COMPLETED.value
+                    await self._log(batch.id, bc.id, "info", "complete",
+                                    f"{prefix}: Completed. All {len(mandatory_doc_names)} mandatory documents verified & uploaded.")
+
                 await self.db.flush()
 
         except Exception as e:
@@ -565,6 +608,44 @@ class BatchOrchestrator:
         )
         doc_type = result.scalar_one_or_none()
         return doc_type or "Document"
+
+    async def _get_required_document_rules(self) -> list[RequiredDocumentRule]:
+        """Load all active required document rules from the checklist."""
+        result = await self.db.execute(
+            select(RequiredDocumentRule).where(RequiredDocumentRule.is_active.is_(True))
+        )
+        return list(result.scalars().all())
+
+    @staticmethod
+    def _normalize_doc_type(doc_type: str) -> str:
+        """Normalize a document type string for comparison.
+        Strips spaces, underscores, hyphens and lowercases for matching
+        AI classification output (e.g. 'pan_card') against checklist names (e.g. 'PAN Card').
+        """
+        import re
+        return re.sub(r'[\s_\-]+', '', doc_type.lower().strip())
+
+    @staticmethod
+    def _doc_type_matches_checklist(normalized_type: str, mandatory_doc_names: set[str]) -> bool:
+        """Check if a normalized doc type matches any entry in the mandatory checklist.
+        Uses substring matching: 'aadhaar' matches 'aadhaarcard' and vice versa.
+        """
+        for rule_name in mandatory_doc_names:
+            if normalized_type in rule_name or rule_name in normalized_type:
+                return True
+        return False
+
+    @staticmethod
+    def _get_matched_mandatory(uploaded_doc_types: set[str], mandatory_doc_names: set[str]) -> tuple[set[str], set[str]]:
+        """Return (matched, missing) mandatory doc names based on substring matching."""
+        matched = set()
+        for rule_name in mandatory_doc_names:
+            for uploaded in uploaded_doc_types:
+                if uploaded in rule_name or rule_name in uploaded:
+                    matched.add(rule_name)
+                    break
+        missing = mandatory_doc_names - matched
+        return matched, missing
 
     async def _cleanup_batch_local_files(self, batch: BatchImport) -> None:
         """Remove local files for a concluded batch. Called after batch completes/fails."""

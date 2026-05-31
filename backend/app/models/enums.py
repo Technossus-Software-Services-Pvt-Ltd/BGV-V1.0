@@ -89,6 +89,8 @@ class BatchCandidateStatus(str, enum.Enum):
     DOWNLOADING = "downloading"
     PROCESSING = "processing"
     COMPLETED = "completed"
+    PARTIAL = "partial"
+    AWAITING_REQUIRED_DOCUMENTS = "awaiting_required_documents"
     FAILED = "failed"
     SKIPPED = "skipped"
 

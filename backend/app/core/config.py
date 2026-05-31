@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     max_concurrent_ocr: int = 2
     max_concurrent_ai: int = 1
     ocr_timeout_seconds: int = 120
-    ai_timeout_seconds: int = 60
+    ai_timeout_seconds: int = 120
 
 
     @property
