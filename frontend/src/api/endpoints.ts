@@ -292,3 +292,13 @@ export async function logoutUser(): Promise<{ success: boolean; message: string 
   const response = await api.post('/auth/logout');
   return response.data;
 }
+
+export async function getReviewQueue(params?: {
+  skip?: number;
+  limit?: number;
+  search?: string;
+  status?: string;
+}): Promise<{ items: any[]; total: number }> {
+  const response = await api.get('/review-queue', { params });
+  return response.data;
+}

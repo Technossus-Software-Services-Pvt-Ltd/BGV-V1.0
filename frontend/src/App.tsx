@@ -6,6 +6,7 @@ import DocumentsPage from './pages/DocumentsPage';
 import DocumentDetailPage from './pages/DocumentDetailPage';
 import CandidatesPage from './pages/CandidatesPage';
 import AuditPage from './pages/AuditPage';
+import ReviewQueuePage from './pages/ReviewQueuePage';
 import SettingsPage from './pages/SettingsPage';
 import LoginPage from './pages/LoginPage';
 import AuthCallbackPage from './pages/AuthCallbackPage';
@@ -35,6 +36,7 @@ function App() {
         <Route path="documents/:documentId" element={<DocumentDetailPage />} />
         <Route path="candidates" element={<CandidatesPage />} />
         <Route path="audit" element={<AuditPage />} />
+        <Route path="review-queue" element={<ReviewQueuePage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="profile" element={<ProfilePage />} />
       </Route>
