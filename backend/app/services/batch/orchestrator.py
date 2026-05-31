@@ -25,6 +25,8 @@ from app.services.integrations.gmail_scanner import GmailScanner, DiscoveredAtta
 from app.services.integrations.drive_service import GoogleDriveService, DiscoveredDriveFile
 from app.services.processing.pipeline import ProcessingPipeline
 from app.services.audit.logger import AuditService
+from app.services.settings.file_naming_service import FileNamingRuleService
+from app.models.classification import AIClassification
 from app.core.config import settings
 from app.core.logging import get_logger
 
@@ -493,25 +495,45 @@ class BatchOrchestrator:
         """Upload a confirmed document to Drive with lazy folder creation and retry on connection error.
         Returns the (possibly refreshed) drive_service and storage_folder_id.
         """
+        # Load configurable file naming rule
+        naming_rule = await FileNamingRuleService.get_active_rule(self.db)
+
         for attempt in range(2):
             try:
                 if not storage_folder_id:
-                    storage_folder_id = drive_service.create_storage_folder(
-                        batch.batch_code, bc.source_name
+                    folder_name = FileNamingRuleService.resolve_folder_name(
+                        naming_rule.folder_structure_pattern,
+                        bc.source_candidate_id,
+                        bc.source_name,
+                        batch.created_at,
+                    )
+                    storage_folder_id = drive_service.create_storage_folder_with_name(
+                        folder_name
                     )
                     await self._log(batch.id, bc.id, "info", "drive_storage",
-                                    f"{prefix}: Created Drive folder for verified documents")
+                                    f"{prefix}: Created Drive folder '{folder_name}' for verified documents")
 
                 doc_result = await self.db.execute(
                     select(Document).where(Document.id == doc_id)
                 )
                 doc = doc_result.scalar_one()
+
+                # Resolve file name from the configured pattern
+                doc_type = await self._get_document_type(doc_id)
+                resolved_filename = FileNamingRuleService.resolve_file_name(
+                    naming_rule.file_rename_pattern,
+                    bc.source_candidate_id,
+                    bc.source_name,
+                    doc_type,
+                    doc.original_filename,
+                )
+
                 file_bytes = Path(doc.file_path).read_bytes()
                 drive_service.upload_file(
-                    storage_folder_id, doc.original_filename, file_bytes, doc.mime_type
+                    storage_folder_id, resolved_filename, file_bytes, doc.mime_type
                 )
                 await self._log(batch.id, bc.id, "info", "drive_upload",
-                                f"{prefix}: Uploaded '{doc.original_filename}' to Drive (ownership confirmed)")
+                                f"{prefix}: Uploaded '{resolved_filename}' to Drive (ownership confirmed)")
                 return drive_service, storage_folder_id
 
             except (OSError, ConnectionError) as e:
@@ -530,6 +552,19 @@ class BatchOrchestrator:
                 break
 
         return drive_service, storage_folder_id
+
+    async def _get_document_type(self, doc_id: str) -> str:
+        """Get the AI-classified document type for a document."""
+        result = await self.db.execute(
+            select(AIClassification.document_type)
+            .where(
+                AIClassification.document_id == doc_id,
+                AIClassification.page_id.is_(None),  # Full-document classification
+            )
+            .order_by(AIClassification.confidence_score.desc())
+        )
+        doc_type = result.scalar_one_or_none()
+        return doc_type or "Document"
 
     async def _cleanup_batch_local_files(self, batch: BatchImport) -> None:
         """Remove local files for a concluded batch. Called after batch completes/fails."""

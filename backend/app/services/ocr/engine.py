@@ -7,6 +7,8 @@ from typing import Optional
 
 # Fix OpenMP duplicate library crash on Windows (PaddleOCR + NumPy both load libiomp5md.dll)
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+# Disable MKL-DNN/OneDNN to avoid kernel compatibility errors on Windows
+os.environ["FLAGS_use_mkldnn"] = "0"
 
 from app.core.logging import get_logger
 from app.core.config import settings
@@ -26,7 +28,7 @@ def _get_paddle_ocr():
             lang="en",
             use_gpu=False,
             show_log=False,
-            enable_mkldnn=True,
+            enable_mkldnn=False,
             cpu_threads=2,
             det_db_thresh=0.3,
             det_db_box_thresh=0.5,
