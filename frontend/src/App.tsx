@@ -2,7 +2,8 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import UploadPage from './pages/UploadPage';
-import DocumentsPage from './pages/DocumentsPage';
+import BatchHistoryPage from './pages/BatchHistoryPage';
+import BatchDetailPage from './pages/BatchDetailPage';
 import DocumentDetailPage from './pages/DocumentDetailPage';
 import CandidatesPage from './pages/CandidatesPage';
 import AuditPage from './pages/AuditPage';
@@ -32,7 +33,8 @@ function App() {
       <Route path="/" element={<ProtectedLayout />}>
         <Route index element={<Dashboard />} />
         <Route path="upload" element={<UploadPage />} />
-        <Route path="documents" element={<DocumentsPage />} />
+        <Route path="batch-history" element={<BatchHistoryPage />} />
+        <Route path="batch-history/:batchId" element={<BatchDetailPage />} />
         <Route path="documents/:documentId" element={<DocumentDetailPage />} />
         <Route path="candidates" element={<CandidatesPage />} />
         <Route path="audit" element={<AuditPage />} />

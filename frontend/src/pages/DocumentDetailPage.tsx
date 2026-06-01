@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { getDocumentDetail, getProcessingTimeline } from '../api/endpoints';
 import { DocumentDetail, ProcessingTimeline } from '../types';
 import StatusBadge from '../components/StatusBadge';
@@ -85,14 +85,14 @@ export default function DocumentDetailPage() {
     <div className="space-y-6 animate-fade-in">
       {/* Back + Header */}
       <div className="flex items-start gap-4">
-        <Link
-          to="/documents"
+        <button
+          onClick={() => window.history.length > 1 ? window.history.back() : window.location.assign('/batch-history')}
           className="mt-1 shrink-0 h-9 w-9 rounded-xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-colors"
         >
           <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
           </svg>
-        </Link>
+        </button>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3">
             <h1 className="text-xl font-bold text-gray-900 tracking-tight truncate">{doc.original_filename}</h1>

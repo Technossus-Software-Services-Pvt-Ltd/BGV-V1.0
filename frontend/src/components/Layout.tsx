@@ -35,8 +35,8 @@ const navigation: NavItem[] = [
     ),
   },
   {
-    name: 'Documents',
-    path: '/documents',
+    name: 'Batch History',
+    path: '/batch-history',
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden="true">
         <path d="M8 3h7l5 5v13H8z" />
