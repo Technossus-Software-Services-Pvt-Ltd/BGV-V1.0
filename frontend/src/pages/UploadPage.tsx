@@ -1,15 +1,16 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { uploadDocuments } from '../api/endpoints';
 import {
   uploadBatchFile,
   startBatchProcessing,
   getBatchDetail,
   listBatchImports,
-  retryBatchCandidate,
-  createBatchLogStream,
+  getBatchLogs,
 } from '../api/endpoints';
 import { UploadResponse, BatchImport, BatchCandidate, BatchLogEntry } from '../types';
 import { Link } from 'react-router-dom';
+import ProcessingSummary from '../components/ProcessingSummary';
+import LiveExecutionLogs from '../components/LiveExecutionLogs';
 
 type TabView = 'upload' | 'history';
 
@@ -35,9 +36,7 @@ export default function UploadPage() {
 
   const batchFileInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const eventSourceRef = useRef<EventSource | null>(null);
-  const logsEndRef = useRef<HTMLDivElement>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Load batch history
   useEffect(() => {
@@ -46,86 +45,36 @@ export default function UploadPage() {
     }
   }, [tab]);
 
-  // Auto-scroll logs
-  useEffect(() => {
-    logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [batchLogs]);
-
-  // Polling fallback: periodically refresh batch detail while processing
-  useEffect(() => {
-    if (processing && activeBatch) {
-      pollRef.current = setInterval(async () => {
-        try {
-          const detail = await getBatchDetail(activeBatch.id);
-          setActiveBatch(detail.batch);
-          setBatchCandidates(detail.candidates);
-          // If batch finished, stop processing
-          if (['completed', 'completed_with_errors', 'failed'].includes(detail.batch.status)) {
-            setProcessing(false);
-            eventSourceRef.current?.close();
-          }
-        } catch {
-          // silent
-        }
-      }, 8000);
-    } else if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
-  }, [processing, activeBatch?.id]);
-
-  // Cleanup SSE on unmount
+  // Cleanup polling on unmount
   useEffect(() => {
     return () => {
-      eventSourceRef.current?.close();
+      if (pollingRef.current) clearInterval(pollingRef.current);
     };
   }, []);
 
-  const connectSSE = useCallback((batchId: string) => {
-    eventSourceRef.current?.close();
-    const es = createBatchLogStream(batchId);
-    eventSourceRef.current = es;
+  const startPolling = (batchId: string) => {
+    if (pollingRef.current) clearInterval(pollingRef.current);
 
-    es.onmessage = (event) => {
+    pollingRef.current = setInterval(async () => {
       try {
-        const data: BatchLogEntry = JSON.parse(event.data);
+        const detail = await getBatchDetail(batchId);
+        setActiveBatch(detail.batch);
+        setBatchCandidates(detail.candidates);
 
-        // Check if this is the final batch completion event
-        if (data.type === 'complete' || data.type === 'batch_status' || data.type === 'timeout') {
-          if (data.status === 'completed' || data.status === 'failed' || data.status === 'completed_with_errors' || data.type === 'timeout') {
-            refreshBatchDetail(batchId);
-            es.close();
-            setProcessing(false);
-            return;
-          }
+        const logs = await getBatchLogs(batchId);
+        setBatchLogs(logs.map((l) => ({ ...l, type: l.level, status: l.stage })));
+
+        // Stop polling when batch is done
+        const DONE = ['completed', 'completed_with_errors', 'failed'];
+        if (DONE.includes(detail.batch.status)) {
+          if (pollingRef.current) clearInterval(pollingRef.current);
+          pollingRef.current = null;
+          setProcessing(false);
         }
-
-        // Regular log entry
-        setBatchLogs((prev) => [...prev, data]);
       } catch {
-        // Ignore parse errors
+        // silent — keep polling
       }
-    };
-
-    es.onerror = () => {
-      // On SSE error, refresh batch detail as a fallback
-      refreshBatchDetail(batchId);
-      es.close();
-      setProcessing(false);
-    };
-  }, []);
-
-  const refreshBatchDetail = async (batchId: string) => {
-    try {
-      const detail = await getBatchDetail(batchId);
-      setActiveBatch(detail.batch);
-      setBatchCandidates(detail.candidates);
-    } catch {
-      // silent
-    }
+    }, 3000);
   };
 
   // --- Batch upload handler ---
@@ -166,22 +115,11 @@ export default function UploadPage() {
 
     try {
       await startBatchProcessing(activeBatch.id);
-      connectSSE(activeBatch.id);
+      startPolling(activeBatch.id);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to start processing';
       setError(msg);
       setProcessing(false);
-    }
-  };
-
-  // --- Retry candidate ---
-  const handleRetryCandidate = async (candidateId: string) => {
-    if (!activeBatch) return;
-    try {
-      await retryBatchCandidate(activeBatch.id, candidateId);
-      refreshBatchDetail(activeBatch.id);
-    } catch {
-      // silent
     }
   };
 
@@ -225,33 +163,67 @@ export default function UploadPage() {
     }
   };
 
-  const logLevelColor = (level: string) => {
-    switch (level) {
-      case 'error': return 'text-red-600';
-      case 'warning': return 'text-yellow-600';
-      case 'info': return 'text-blue-600';
-      default: return 'text-gray-600';
-    }
-  };
-
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Upload Documents</h1>
-          <p className="mt-1 text-sm text-gray-500">Import candidates via batch file or manual upload</p>
-        </div>
-        <div className="flex bg-gray-100/80 rounded-xl p-1">
-          <button
-            onClick={() => setTab('upload')}
-            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${tab === 'upload' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-900'}`}>
-            New Import
-          </button>
-          <button
-            onClick={() => setTab('history')}
-            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${tab === 'history' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-900'}`}>
-            History
-          </button>
+      {/* ====== HEADER ====== */}
+      <div className="card">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-primary-50 flex items-center justify-center">
+              <svg className="h-5 w-5 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+            </div>
+            <div>
+              <h1 className="text-lg font-bold text-gray-900 tracking-tight">Upload Candidate Excel</h1>
+              <p className="text-sm text-gray-500">Upload an Excel file with Candidate ID, Name, Email, etc. to start candidate verification</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="flex bg-gray-100/80 rounded-xl p-1">
+              <button
+                onClick={() => setTab('upload')}
+                className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${tab === 'upload' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-900'}`}>
+                New Import
+              </button>
+              <button
+                onClick={() => setTab('history')}
+                className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${tab === 'history' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-900'}`}>
+                History
+              </button>
+            </div>
+            {tab === 'upload' && (
+              <button
+                onClick={() => {
+                  if (activeBatch) {
+                    setActiveBatch(null);
+                    setBatchCandidates([]);
+                    setBatchLogs([]);
+                    if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
+                  }
+                  batchFileInputRef.current?.click();
+                }}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-gray-900 text-white hover:bg-gray-800 transition-colors"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">
+                  <path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                </svg>
+                Upload Excel
+              </button>
+            )}
+            {activeBatch && tab === 'upload' && (
+              <button
+                onClick={handleStartProcessing}
+                disabled={processing || activeBatch.status !== 'parsed'}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+              >
+                <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+                {processing ? 'Processing...' : 'Start Processing'}
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -263,202 +235,137 @@ export default function UploadPage() {
 
       {tab === 'upload' && (
         <div className="space-y-6">
-          {/* ====== BATCH IMPORT SECTION ====== */}
-          <div className="card">
-            <h2 className="text-base font-semibold text-gray-900 mb-1">Batch Import</h2>
-            <p className="text-sm text-gray-500 mb-5">
-              Upload an Excel or CSV file with candidate details. Documents will be auto-discovered from Gmail and Google Drive.
-            </p>
-
-            {!activeBatch && (
-              <>
-                <div
-                  onClick={() => batchFileInputRef.current?.click()}
-                  className="border-2 border-dashed border-gray-200 rounded-2xl p-10 text-center cursor-pointer hover:border-primary-400 hover:bg-primary-50/30 transition-all duration-200 group"
-                >
-                  <div className="mx-auto h-14 w-14 rounded-2xl bg-gray-100 group-hover:bg-primary-100 flex items-center justify-center transition-colors mb-3">
-                    <svg className="h-7 w-7 text-gray-400 group-hover:text-primary-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                  </div>
-                  <p className="mt-2 text-sm text-gray-600">
-                    {batchFile ? batchFile.name : 'Click to select an Excel (.xlsx) or CSV file'}
-                  </p>
-                  <p className="mt-1 text-xs text-gray-400">
-                    Required columns: candidate_id, name. Optional: email, phone, dob, gender
-                  </p>
-                </div>
-
-                <input
-                  ref={batchFileInputRef}
-                  type="file"
-                  accept=".xlsx,.csv"
-                  onChange={(e) => {
-                    if (e.target.files?.[0]) setBatchFile(e.target.files[0]);
-                  }}
-                  className="hidden"
-                />
-
-                {batchFile && (
-                  <div className="mt-4 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-gray-700">{batchFile.name}</span>
-                      <span className="text-xs text-gray-400">({(batchFile.size / 1024).toFixed(0)} KB)</span>
-                      <button onClick={() => setBatchFile(null)} className="text-gray-400 hover:text-red-500 text-xs ml-2">Remove</button>
-                    </div>
-                    <button
-                      onClick={handleBatchUpload}
-                      disabled={batchUploading}
-                      className="btn-primary"
-                    >
-                      {batchUploading ? 'Uploading...' : 'Upload & Parse'}
-                    </button>
-                  </div>
-                )}
-              </>
-            )}
-
-            {/* Batch Summary */}
-            {activeBatch && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="font-medium text-gray-900">{activeBatch.original_filename}</h3>
-                    <p className="text-xs text-gray-500">
-                      Batch: {activeBatch.batch_code} | Status: <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${statusColor(activeBatch.status)}`}>{activeBatch.status}</span>
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    {activeBatch.status === 'parsed' && (
-                      <button onClick={handleStartProcessing} disabled={processing} className="btn-primary">
-                        {processing ? 'Processing...' : 'Start Processing'}
-                      </button>
-                    )}
-                    <button
-                      onClick={() => {
-                        setActiveBatch(null);
-                        setBatchCandidates([]);
-                        setBatchLogs([]);
-                        eventSourceRef.current?.close();
-                      }}
-                      className={`px-3 py-2 text-sm rounded-lg font-medium ${
-                        ['completed', 'completed_with_errors', 'failed'].includes(activeBatch.status)
-                          ? 'bg-green-600 text-white hover:bg-green-700'
-                          : 'text-gray-600 hover:text-gray-900 border border-gray-300'
-                      }`}
-                    >
-                      New Import
-                    </button>
-                  </div>
-                </div>
-
-                {/* Stats Grid */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <div className="bg-gray-50/80 rounded-xl p-4 text-center">
-                    <p className="text-2xl font-bold text-gray-900 tabular-nums">{activeBatch.total_candidates}</p>
-                    <p className="text-[11px] text-gray-500 font-medium uppercase tracking-wide mt-1">Total</p>
-                  </div>
-                  <div className="bg-emerald-50/80 rounded-xl p-4 text-center">
-                    <p className="text-2xl font-bold text-emerald-700 tabular-nums">{activeBatch.processed_candidates}</p>
-                    <p className="text-[11px] text-gray-500 font-medium uppercase tracking-wide mt-1">Processed</p>
-                  </div>
-                  <div className="bg-rose-50/80 rounded-xl p-4 text-center">
-                    <p className="text-2xl font-bold text-rose-700 tabular-nums">{activeBatch.failed_candidates}</p>
-                    <p className="text-[11px] text-gray-500 font-medium uppercase tracking-wide mt-1">Failed</p>
-                  </div>
-                  <div className="bg-sky-50/80 rounded-xl p-4 text-center">
-                    <p className="text-2xl font-bold text-sky-700 tabular-nums">{activeBatch.total_documents_found}</p>
-                    <p className="text-[11px] text-gray-500 font-medium uppercase tracking-wide mt-1">Documents</p>
-                  </div>
-                </div>
-
-                {/* Progress bar */}
-                {activeBatch.total_candidates > 0 && (
-                  <div className="w-full bg-gray-100 rounded-full h-2">
-                    <div
-                      className="bg-gradient-to-r from-primary-500 to-primary-600 h-2 rounded-full transition-all duration-500"
-                      style={{ width: `${Math.round(((activeBatch.processed_candidates + activeBatch.failed_candidates + activeBatch.skipped_candidates) / activeBatch.total_candidates) * 100)}%` }}
-                    />
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Candidates Table */}
-          {batchCandidates.length > 0 && (
+          {/* ====== FILE UPLOAD AREA (when no active batch) ====== */}
+          {!activeBatch && (
             <div className="card">
-              <h2 className="text-base font-semibold text-gray-900 mb-4">Candidates ({batchCandidates.length})</h2>
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-gray-100 bg-gray-50/80">
-                      <th className="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">#</th>
-                      <th className="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Candidate ID</th>
-                      <th className="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Name</th>
-                      <th className="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Email</th>
-                      <th className="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
-                      <th className="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Docs</th>
-                      <th className="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50">
-                    {batchCandidates.map((c) => (
-                      <tr key={c.id} className="hover:bg-gray-50/50 transition-colors">
-                        <td className="px-4 py-3.5 text-sm text-gray-500">{c.row_number}</td>
-                        <td className="px-4 py-3.5 text-sm font-medium text-gray-900">{c.source_candidate_id}</td>
-                        <td className="px-4 py-3.5 text-sm text-gray-700">{c.source_name}</td>
-                        <td className="px-4 py-3.5 text-sm text-gray-500">{c.source_email || '—'}</td>
-                        <td className="px-4 py-3.5">
-                          <span className={`inline-block px-2.5 py-1 rounded-lg text-xs font-semibold ${statusColor(c.status)}`}>
-                            {c.status}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3.5 text-sm text-gray-500">
-                          {c.documents_found > 0 ? `${c.documents_processed}/${c.documents_found}` : '—'}
-                        </td>
-                        <td className="px-4 py-3.5">
-                          {c.status === 'failed' && (
-                            <button
-                              onClick={() => handleRetryCandidate(c.id)}
-                              className="text-xs text-primary-600 hover:text-primary-800 font-medium"
-                            >
-                              Retry
-                            </button>
-                          )}
-                          {c.candidate_id && (
-                            <Link to={`/candidates`} className="text-xs text-primary-600 hover:underline ml-2">
-                              View
-                            </Link>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div
+                onClick={() => batchFileInputRef.current?.click()}
+                className="border-2 border-dashed border-gray-200 rounded-2xl p-10 text-center cursor-pointer hover:border-primary-400 hover:bg-primary-50/30 transition-all duration-200 group"
+              >
+                <div className="mx-auto h-14 w-14 rounded-2xl bg-gray-100 group-hover:bg-primary-100 flex items-center justify-center transition-colors mb-3">
+                  <svg className="h-7 w-7 text-gray-400 group-hover:text-primary-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                </div>
+                <p className="mt-2 text-sm text-gray-600">
+                  {batchFile ? batchFile.name : 'Click to select an Excel (.xlsx) or CSV file'}
+                </p>
+                <p className="mt-1 text-xs text-gray-400">
+                  Required columns: candidate_id, name. Optional: email, phone, dob, gender
+                </p>
               </div>
+
+              <input
+                ref={batchFileInputRef}
+                type="file"
+                accept=".xlsx,.csv"
+                onChange={(e) => {
+                  if (e.target.files?.[0]) setBatchFile(e.target.files[0]);
+                }}
+                className="hidden"
+              />
+
+              {batchFile && (
+                <div className="mt-4 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-gray-700">{batchFile.name}</span>
+                    <span className="text-xs text-gray-400">({(batchFile.size / 1024).toFixed(0)} KB)</span>
+                    <button onClick={() => setBatchFile(null)} className="text-gray-400 hover:text-red-500 text-xs ml-2">Remove</button>
+                  </div>
+                  <button
+                    onClick={handleBatchUpload}
+                    disabled={batchUploading}
+                    className="btn-primary"
+                  >
+                    {batchUploading ? 'Uploading...' : 'Upload & Parse'}
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
-          {/* Live Logs */}
-          {batchLogs.length > 0 && (
-            <div className="card">
-              <h2 className="text-base font-semibold text-gray-900 mb-4">Processing Logs</h2>
-              <div className="bg-slate-900 rounded-xl p-4 max-h-80 overflow-y-auto font-mono text-xs">
-                {batchLogs.map((log, i) => (
-                  <div key={i} className="py-0.5">
-                    <span className="text-gray-500">{log.created_at ? new Date(log.created_at).toLocaleTimeString() : ''}</span>
-                    {' '}
-                    <span className={logLevelColor(log.level || 'info')}>[{(log.level || 'info').toUpperCase()}]</span>
-                    {' '}
-                    <span className="text-gray-300">{log.stage || ''}</span>
-                    {' — '}
-                    <span className="text-gray-100">{log.message || ''}</span>
-                  </div>
-                ))}
-                <div ref={logsEndRef} />
+          {/* ====== PROCESSING VIEW (3-column layout) ====== */}
+          {activeBatch && (
+            <>
+              {/* Progress Bar - Full Width */}
+              <div className="card p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-gray-700">Processing Progress</span>
+                  <span className="text-sm text-gray-500 tabular-nums">
+                    {activeBatch.processed_candidates + activeBatch.failed_candidates + activeBatch.skipped_candidates} / {activeBatch.total_candidates} candidates
+                  </span>
+                </div>
+                <div className="w-full bg-gray-100 rounded-full h-2.5">
+                  <div
+                    className="bg-gradient-to-r from-emerald-500 to-emerald-600 h-2.5 rounded-full transition-all duration-500"
+                    style={{ width: `${activeBatch.total_candidates > 0 ? Math.round(((activeBatch.processed_candidates + activeBatch.failed_candidates + activeBatch.skipped_candidates) / activeBatch.total_candidates) * 100) : 0}%` }}
+                  />
+                </div>
               </div>
-            </div>
+
+              {/* 3-Column Grid */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                {/* Left: Processing Summary */}
+                <div className="lg:col-span-3">
+                  <div className="card">
+                    <ProcessingSummary batch={activeBatch} candidates={batchCandidates} />
+                  </div>
+                </div>
+
+                {/* Center: Candidate Table */}
+                <div className="lg:col-span-5">
+                  <div className="card overflow-hidden p-0">
+                    <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                      <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4 text-gray-400">
+                          <rect x="3" y="3" width="18" height="18" rx="2" />
+                          <path d="M3 9h18M9 21V9" />
+                        </svg>
+                        Candidate Processing Status
+                      </h3>
+                      <span className="text-xs text-gray-500 font-medium px-2.5 py-1 rounded-full border border-gray-200">{batchCandidates.length} records</span>
+                    </div>
+                    <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
+                      <table className="w-full text-sm">
+                        <thead className="sticky top-0 z-10">
+                          <tr className="border-b border-gray-100 bg-gray-50/80">
+                            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">ID</th>
+                            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Name</th>
+                            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Email</th>
+                            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Docs</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-50">
+                          {batchCandidates.map((c) => (
+                            <tr key={c.id} className="hover:bg-gray-50/50 transition-colors">
+                              <td className="px-4 py-3 text-xs font-mono text-gray-600">{c.source_candidate_id}</td>
+                              <td className="px-4 py-3 text-sm font-medium text-gray-900">{c.source_name}</td>
+                              <td className="px-4 py-3 text-xs text-gray-500 truncate max-w-[140px]">{c.source_email || '—'}</td>
+                              <td className="px-4 py-3">
+                                <span className={`inline-block px-2 py-0.5 rounded-lg text-xs font-semibold ${statusColor(c.status)}`}>
+                                  {c.status === 'awaiting_required_documents' ? 'Awaiting' : c.status.charAt(0).toUpperCase() + c.status.slice(1)}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-sm text-gray-500 tabular-nums">
+                                {c.documents_found > 0 ? `${c.documents_processed}/${c.documents_found}` : '—'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right: Live Execution Logs */}
+                <div className="lg:col-span-4">
+                  <div className="card p-4">
+                    <LiveExecutionLogs logs={batchLogs} onClear={() => setBatchLogs([])} />
+                  </div>
+                </div>
+              </div>
+            </>
           )}
 
           {/* ====== MANUAL UPLOAD SECTION (Collapsed) ====== */}
@@ -569,7 +476,9 @@ export default function UploadPage() {
                             const detail = await getBatchDetail(b.id);
                             setActiveBatch(detail.batch);
                             setBatchCandidates(detail.candidates);
-                            setBatchLogs([]);
+                            // Load logs from backend
+                            const logs = await getBatchLogs(b.id);
+                            setBatchLogs(logs.map((l) => ({ ...l, type: l.level, status: l.stage })));
                             setTab('upload');
                           }}
                           className="text-xs text-primary-600 hover:text-primary-800 font-medium"

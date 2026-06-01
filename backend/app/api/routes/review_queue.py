@@ -22,6 +22,7 @@ REVIEW_STATUSES = [
     BatchCandidateStatus.PARTIAL.value,
     BatchCandidateStatus.AWAITING_REQUIRED_DOCUMENTS.value,
     BatchCandidateStatus.FAILED.value,
+    BatchCandidateStatus.NO_DOCUMENTS.value,
 ]
 
 
@@ -35,10 +36,26 @@ async def list_review_queue(
 ):
     """List candidates that need review: partial, awaiting_required_documents, or failed."""
 
-    # Base query: join batch_import_candidates with batch_imports
+    # Subquery: get the latest record per source_candidate_id
+    latest_subq = (
+        select(
+            BatchImportCandidate.source_candidate_id,
+            func.max(BatchImportCandidate.updated_at).label("max_updated"),
+        )
+        .where(BatchImportCandidate.status.in_(REVIEW_STATUSES))
+        .group_by(BatchImportCandidate.source_candidate_id)
+        .subquery()
+    )
+
+    # Base query: join batch_import_candidates with batch_imports, filtered to latest per candidate
     base_query = (
         select(BatchImportCandidate, BatchImport.batch_code)
         .join(BatchImport, BatchImportCandidate.batch_import_id == BatchImport.id)
+        .join(
+            latest_subq,
+            (BatchImportCandidate.source_candidate_id == latest_subq.c.source_candidate_id)
+            & (BatchImportCandidate.updated_at == latest_subq.c.max_updated),
+        )
         .where(BatchImportCandidate.status.in_(REVIEW_STATUSES))
     )
 

@@ -171,6 +171,7 @@ export default function ReviewQueuePage() {
       case 'partial': return 'Partial';
       case 'awaiting_required_documents': return 'Awaiting Documents';
       case 'failed': return 'Failed';
+      case 'no_documents': return 'No Documents';
       default: return status;
     }
   };
@@ -180,6 +181,7 @@ export default function ReviewQueuePage() {
       case 'partial': return 'bg-orange-50 text-orange-700 ring-1 ring-inset ring-orange-600/10';
       case 'awaiting_required_documents': return 'bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-600/10';
       case 'failed': return 'bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-600/10';
+      case 'no_documents': return 'bg-slate-50 text-slate-700 ring-1 ring-inset ring-slate-600/10';
       default: return 'bg-gray-50 text-gray-600 ring-1 ring-inset ring-gray-500/10';
     }
   };
@@ -195,6 +197,7 @@ export default function ReviewQueuePage() {
 
   const reasonText = (item: ReviewQueueItem) => {
     if (item.status === 'failed') return item.error_message || 'Processing error';
+    if (item.status === 'no_documents') return 'No documents received from candidate';
     if (item.status === 'awaiting_required_documents') return 'No required documents matched';
     if (item.status === 'partial') return 'Missing mandatory documents';
     return '-';
@@ -265,6 +268,7 @@ export default function ReviewQueuePage() {
             <option value="">All Statuses</option>
             <option value="partial">Partial</option>
             <option value="awaiting_required_documents">Awaiting Documents</option>
+            <option value="no_documents">No Documents</option>
             <option value="failed">Failed</option>
           </select>
         </div>

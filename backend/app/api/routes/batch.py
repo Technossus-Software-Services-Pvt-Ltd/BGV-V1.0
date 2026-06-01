@@ -425,3 +425,6 @@ async def _retry_candidate_background(batch_import_id: str, batch_candidate_id: 
         except Exception as e:
             await db.rollback()
             logger.error("retry_candidate_failed", batch_candidate_id=batch_candidate_id, error=str(e))
+
+
+

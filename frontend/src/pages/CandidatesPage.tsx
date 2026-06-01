@@ -76,13 +76,10 @@ export default function CandidatesPage() {
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Candidates</h1>
           <p className="text-sm text-gray-500 mt-1">{total} total candidates</p>
         </div>
-        <button onClick={() => setShowForm(!showForm)} className="btn-primary">
-          {showForm ? 'Cancel' : 'Add Candidate'}
-        </button>
       </div>
 
-      {/* Create Form */}
-      {showForm && (
+      {/* Create Form - hidden */}
+      {false && showForm && (
         <div className="card">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Add New Candidate</h2>
           {formError && (

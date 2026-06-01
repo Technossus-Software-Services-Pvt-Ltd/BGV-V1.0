@@ -38,18 +38,23 @@ export default function BatchDetailPage() {
     loadData();
   }, [batchId]);
 
-  // Group documents by candidate
+  // Group documents by candidate — only include docs created after the batch started
   const candidateDocMap = useMemo(() => {
     const map = new Map<string, DocumentListItem[]>();
+    const batchCreatedAt = batch ? new Date(batch.created_at).getTime() : 0;
+    const candidateIds = new Set(candidates.map((c) => c.candidate_id).filter(Boolean));
     for (const doc of documents) {
-      if (doc.candidate_id) {
-        const list = map.get(doc.candidate_id) || [];
-        list.push(doc);
-        map.set(doc.candidate_id, list);
+      if (doc.candidate_id && candidateIds.has(doc.candidate_id)) {
+        const docTime = new Date(doc.created_at).getTime();
+        if (docTime >= batchCreatedAt) {
+          const list = map.get(doc.candidate_id) || [];
+          list.push(doc);
+          map.set(doc.candidate_id, list);
+        }
       }
     }
     return map;
-  }, [documents]);
+  }, [documents, batch, candidates]);
 
   const toggleCandidate = (candidateId: string) => {
     setExpandedCandidates((prev) => {

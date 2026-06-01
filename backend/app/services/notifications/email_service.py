@@ -106,6 +106,18 @@ class NotificationService:
 <p>Regards,<br/>BGV Team</p>
 """
 
+        elif candidate.status == BatchCandidateStatus.NO_DOCUMENTS.value:
+            doc_list = "" .join(f"<li>{doc}</li>" for doc in sorted(mandatory_names))
+            subject = f"Action Required: No Documents Received - {name}"
+            body_html = f"""
+<p>Dear {name},</p>
+<p>We have not received any documents from you for the background verification process.</p>
+<p><strong>Please submit the following mandatory documents:</strong></p>
+<ul>{doc_list}</ul>
+<p>You can reply to this email with the documents attached or upload them through the portal.</p>
+<p>Regards,<br/>BGV Team</p>
+"""
+
         elif candidate.status == BatchCandidateStatus.FAILED.value:
             error_reason = candidate.error_message or "Processing error"
             subject = f"Action Required: Document Resubmission - {name}"

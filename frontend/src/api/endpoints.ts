@@ -149,7 +149,6 @@ export function createBatchLogStream(batchId: string): EventSource {
   const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api/v1';
   return new EventSource(`${baseUrl}/batch/${batchId}/logs`);
 }
-
 export interface BatchLogItem {
   id: string;
   batch_import_id: string;
