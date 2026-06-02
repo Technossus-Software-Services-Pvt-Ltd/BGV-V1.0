@@ -5,6 +5,8 @@ from typing import List, Optional
 from datetime import date, datetime, timedelta
 
 from app.db.session import get_db
+from app.api.deps import get_current_user
+from app.models.auth_user import AuthUser
 from app.models.document import Document, DocumentPage
 from app.models.ocr_result import OCRResult
 from app.models.classification import AIClassification
@@ -31,6 +33,7 @@ async def list_documents(
     skip: int = 0,
     limit: int = 50,
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     query = select(Document).order_by(Document.created_at.desc())
 
@@ -77,6 +80,7 @@ async def list_documents(
 async def get_document_detail(
     document_id: str,
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     # Get document
     result = await db.execute(select(Document).where(Document.id == document_id))
@@ -130,6 +134,7 @@ async def get_document_detail(
 async def get_document_ocr(
     document_id: str,
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     result = await db.execute(
         select(OCRResult).where(OCRResult.document_id == document_id)
@@ -141,6 +146,7 @@ async def get_document_ocr(
 async def get_document_classification(
     document_id: str,
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     result = await db.execute(
         select(AIClassification).where(AIClassification.document_id == document_id)
@@ -152,6 +158,7 @@ async def get_document_classification(
 async def get_document_validation(
     document_id: str,
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     result = await db.execute(
         select(ValidationResult).where(ValidationResult.document_id == document_id)

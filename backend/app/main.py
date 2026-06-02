@@ -19,8 +19,9 @@ from app.api.routes import ws
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    if settings.environment == "development":
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
     yield
     await engine.dispose()
 

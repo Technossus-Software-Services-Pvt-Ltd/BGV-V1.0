@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { clearStoredUser, getStoredUser } from '../utils/auth';
+import { useAuth } from '../hooks/useAuth';
 import { logoutUser } from '../api/endpoints';
 
 type NavItem = {
@@ -97,7 +97,7 @@ export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
-  const user = getStoredUser();
+  const { user, logout } = useAuth();
   const userName = user?.name?.trim() || user?.email || 'User';
   const userEmail = user?.email || '';
 
@@ -137,7 +137,7 @@ export default function Layout() {
     } catch {
       // Always clear local auth even if network/API logout fails.
     } finally {
-      clearStoredUser();
+      logout();
       setMenuOpen(false);
       navigate('/login', { replace: true });
     }

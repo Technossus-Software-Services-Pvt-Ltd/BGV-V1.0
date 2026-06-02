@@ -1,4 +1,5 @@
 import api from './client';
+import { getSessionToken } from '../utils/auth';
 import {
   UploadResponse,
   DocumentListItem,
@@ -147,7 +148,11 @@ export async function retryBatchCandidate(
 
 export function createBatchLogStream(batchId: string): EventSource {
   const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api/v1';
-  return new EventSource(`${baseUrl}/batch/${batchId}/logs`);
+  const token = getSessionToken();
+  const url = token
+    ? `${baseUrl}/batch/${batchId}/logs?token=${encodeURIComponent(token)}`
+    : `${baseUrl}/batch/${batchId}/logs`;
+  return new EventSource(url);
 }
 export interface BatchLogItem {
   id: string;

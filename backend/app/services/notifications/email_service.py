@@ -179,9 +179,23 @@ class NotificationService:
 
                 for log_entry in logs:
                     try:
-                        await NotificationService._send_single_email(
-                            config.credentials_json, log_entry
-                        )
+                        # Retry up to 3 times with exponential backoff
+                        last_err = None
+                        for attempt in range(3):
+                            try:
+                                await NotificationService._send_single_email(
+                                    config.credentials_json, log_entry
+                                )
+                                last_err = None
+                                break
+                            except Exception as e:
+                                last_err = e
+                                if attempt < 2:
+                                    await asyncio.sleep(2 ** attempt)
+
+                        if last_err:
+                            raise last_err
+
                         log_entry.status = NotificationStatus.SENT.value
                         log_entry.sent_at = datetime.now(timezone.utc)
                         logger.info("notification_sent", log_id=log_entry.id, to=log_entry.recipient_email)

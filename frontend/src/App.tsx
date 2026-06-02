@@ -11,23 +11,29 @@ import ReviewQueuePage from './pages/ReviewQueuePage';
 import SettingsPage from './pages/SettingsPage';
 import LoginPage from './pages/LoginPage';
 import AuthCallbackPage from './pages/AuthCallbackPage';
-import { isAuthenticated } from './utils/auth';
+import { useAuth } from './hooks/useAuth';
 import ProfilePage from './pages/ProfilePage';
 
 function ProtectedLayout() {
-  if (!isAuthenticated()) {
+  const { isLoggedIn } = useAuth();
+  if (!isLoggedIn) {
     return <Navigate to="/login" replace />;
   }
   return <Layout />;
 }
 
+function LoginRoute() {
+  const { isLoggedIn } = useAuth();
+  if (isLoggedIn) {
+    return <Navigate to="/" replace />;
+  }
+  return <LoginPage />;
+}
+
 function App() {
   return (
     <Routes>
-      <Route
-        path="/login"
-        element={isAuthenticated() ? <Navigate to="/" replace /> : <LoginPage />}
-      />
+      <Route path="/login" element={<LoginRoute />} />
       <Route path="/auth/callback" element={<AuthCallbackPage />} />
 
       <Route path="/" element={<ProtectedLayout />}>

@@ -77,7 +77,10 @@ class ProcessingPipeline:
 
             doc_dir = self.normalizer.get_document_dir(correlation_id, document_id)
             file_path = Path(document.file_path)
-            page_paths = self.normalizer.extract_pages(file_path, doc_dir, document.mime_type)
+            loop = asyncio.get_running_loop()
+            page_paths = await loop.run_in_executor(
+                None, self.normalizer.extract_pages, file_path, doc_dir, document.mime_type
+            )
 
             # Update document page count
             document.total_pages = len(page_paths)
@@ -282,11 +285,17 @@ class ProcessingPipeline:
         try:
             page_path = Path(page.file_path)
 
-            # Normalize image
-            img_array, metadata = self.preprocessor.normalize_image(page_path)
+            # Normalize image (CPU-bound, run in executor)
+            loop = asyncio.get_running_loop()
+            img_array, metadata = await loop.run_in_executor(
+                None, self.preprocessor.normalize_image, page_path
+            )
 
-            # Check for blank page
-            if self.preprocessor.is_blank_page(img_array):
+            # Check for blank page (CPU-bound, run in executor)
+            is_blank = await loop.run_in_executor(
+                None, self.preprocessor.is_blank_page, img_array
+            )
+            if is_blank:
                 page.processing_status = ProcessingStatus.OCR_COMPLETE.value
                 ocr_record = OCRResult(
                     document_id=document.id,
@@ -303,8 +312,8 @@ class ProcessingPipeline:
                 await self.db.flush()
                 return ocr_record
 
-            # Run OCR
-            ocr_result = self.ocr_engine.process(img_array)
+            # Run OCR (CPU-bound, uses dedicated thread pool)
+            ocr_result = await self.ocr_engine.process_async(img_array)
 
             # Update page metadata
             page.width = metadata.get("final_width")

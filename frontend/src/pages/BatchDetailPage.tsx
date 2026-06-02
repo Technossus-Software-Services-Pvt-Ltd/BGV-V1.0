@@ -20,13 +20,24 @@ export default function BatchDetailPage() {
     setLoading(true);
     setError(null);
     try {
-      const [detail, docs] = await Promise.all([
-        getBatchDetail(batchId),
-        listDocuments({ limit: 500 }),
-      ]);
+      const detail = await getBatchDetail(batchId);
       setBatch(detail.batch);
       setCandidates(detail.candidates);
-      setDocuments(docs);
+
+      // Fetch documents only for candidates in this batch (avoid fetching all docs)
+      const candidateIds = detail.candidates
+        .map((c) => c.candidate_id)
+        .filter(Boolean) as string[];
+
+      if (candidateIds.length > 0) {
+        const docPromises = candidateIds.map((cid) =>
+          listDocuments({ candidate_id: cid, limit: 100 })
+        );
+        const docResults = await Promise.all(docPromises);
+        setDocuments(docResults.flat());
+      } else {
+        setDocuments([]);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load batch details');
     } finally {

@@ -1,8 +1,10 @@
 import os
 import time
+import asyncio
 import json
 import numpy as np
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 # Fix OpenMP duplicate library crash on Windows (PaddleOCR + NumPy both load libiomp5md.dll)
@@ -202,3 +204,16 @@ class PaddleOCREngine:
                 processing_duration_ms=duration_ms,
                 error=str(e),
             )
+
+    # Thread pool for offloading CPU-bound OCR work from the async event loop
+    _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ocr")
+
+    async def process_async(self, image_array: np.ndarray) -> OCREngineResult:
+        """Run OCR in a thread pool to avoid blocking the event loop."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._executor, self.process, image_array)
+
+    async def process_from_path_async(self, image_path: Path) -> OCREngineResult:
+        """Run path-based OCR in a thread pool to avoid blocking the event loop."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._executor, self.process_from_path, image_path)

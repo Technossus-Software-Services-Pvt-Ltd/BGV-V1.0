@@ -1,11 +1,13 @@
 import { useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { completeGoogleLogin } from '../api/endpoints';
-import { isAuthenticated, setSessionToken, setStoredUser } from '../utils/auth';
+import { isAuthenticated } from '../utils/auth';
+import { useAuth } from '../hooks/useAuth';
 
 export default function AuthCallbackPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const { login } = useAuth();
 
   useEffect(() => {
     const runCallback = async () => {
@@ -43,8 +45,7 @@ export default function AuthCallbackPage() {
 
       try {
         const response = await completeGoogleLogin(code, state);
-        setStoredUser(response.user);
-        setSessionToken(response.session_token);
+        login(response.user, response.session_token);
         sessionStorage.setItem(callbackLockKey, 'done');
         navigate('/', { replace: true });
       } catch (err) {
@@ -54,7 +55,7 @@ export default function AuthCallbackPage() {
     };
 
     runCallback();
-  }, [navigate, searchParams]);
+  }, [navigate, searchParams, login]);
 
   return (
     <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center px-4">

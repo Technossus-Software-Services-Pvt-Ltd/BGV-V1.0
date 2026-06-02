@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useMemo } from 'react';
+import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { listDocuments, listBatches } from '../api/endpoints';
 import { DocumentListItem, BatchInfo } from '../types';
@@ -13,13 +13,14 @@ export default function DocumentsPage() {
   const [error, setError] = useState<string | null>(null);
   const [expandedBatches, setExpandedBatches] = useState<Set<string>>(new Set());
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const loadDataRef = useRef<(showLoading?: boolean) => Promise<void>>();
 
   // Date filters — default to today
   const today = new Date().toISOString().split('T')[0];
   const [dateFrom, setDateFrom] = useState(today);
   const [dateTo, setDateTo] = useState(today);
 
-  const loadData = async (showLoading = true) => {
+  const loadData = useCallback(async (showLoading = true) => {
     if (showLoading) setLoading(true);
     setError(null);
     try {
@@ -38,27 +39,36 @@ export default function DocumentsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [dateFrom, dateTo]);
+
+  // Keep ref updated so polling interval always calls latest loadData
+  loadDataRef.current = loadData;
 
   useEffect(() => {
     loadData();
-  }, [dateFrom, dateTo]);
+  }, [loadData]);
 
   // Auto-poll every 5 seconds if any document is still processing
+  const hasProcessingRef = useRef(false);
   useEffect(() => {
     const hasProcessing = documents.some(
       (doc) => !['completed', 'failed', 'ocr_failed', 'skipped'].includes(doc.processing_status)
     );
-    if (hasProcessing) {
-      pollRef.current = setInterval(() => loadData(false), 5000);
-    } else if (pollRef.current) {
+    hasProcessingRef.current = hasProcessing;
+
+    if (hasProcessing && !pollRef.current) {
+      pollRef.current = setInterval(() => loadDataRef.current?.(false), 5000);
+    } else if (!hasProcessing && pollRef.current) {
       clearInterval(pollRef.current);
       pollRef.current = null;
     }
     return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
     };
-  }, [documents]);
+  }, [documents.length, documents.map(d => d.processing_status).join(',')]);
 
   // Group documents by batch
   const { batchGroups, ungroupedDocs } = useMemo(() => {

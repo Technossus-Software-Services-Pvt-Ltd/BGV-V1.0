@@ -182,11 +182,11 @@ async def google_auth_callback(payload: GoogleAuthCallbackRequest, db: AsyncSess
             user_payload = user_response.json()
     except HTTPException:
         raise
-    except httpx.HTTPError as exc:
+    except httpx.HTTPError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Google OAuth request failed: {str(exc)}",
-        ) from exc
+            detail="Google OAuth request failed. Please try again.",
+        )
 
     email = user_payload.get("email")
     if not email:

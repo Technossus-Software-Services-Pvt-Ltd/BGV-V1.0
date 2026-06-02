@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { getDocumentDetail, getProcessingTimeline } from '../api/endpoints';
 import { DocumentDetail, ProcessingTimeline } from '../types';
@@ -27,8 +27,9 @@ export default function DocumentDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'ocr' | 'classification' | 'validation' | 'timeline'>('ocr');
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const loadDataRef = useRef<(showLoading?: boolean) => Promise<void>>();
 
-  const loadData = async (showLoading = true) => {
+  const loadData = useCallback(async (showLoading = true) => {
     if (!documentId) return;
     if (showLoading) setLoading(true);
     setError(null);
@@ -47,16 +48,19 @@ export default function DocumentDetailPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [documentId]);
+
+  // Keep ref updated so polling interval always calls latest loadData
+  loadDataRef.current = loadData;
 
   useEffect(() => {
     loadData();
-  }, [documentId]);
+  }, [loadData]);
 
   // Auto-poll while processing is in progress
   useEffect(() => {
     if (detail && !TERMINAL_STATUSES.includes(detail.document.processing_status)) {
-      pollRef.current = setInterval(() => loadData(false), 5000);
+      pollRef.current = setInterval(() => loadDataRef.current?.(false), 5000);
     } else if (pollRef.current) {
       clearInterval(pollRef.current);
       pollRef.current = null;

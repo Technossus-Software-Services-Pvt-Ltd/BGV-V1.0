@@ -28,6 +28,7 @@ async def websocket_batch(
     from app.db.session import AsyncSessionLocal
     from sqlalchemy import select
     from app.models.auth_session import AuthSession
+    from datetime import datetime, timezone
 
     async with AsyncSessionLocal() as db:
         result = await db.execute(
@@ -36,6 +37,12 @@ async def websocket_batch(
         session = result.scalar_one_or_none()
         if not session:
             await websocket.close(code=4003, reason="Invalid token")
+            return
+        if session.revoked_at is not None:
+            await websocket.close(code=4003, reason="Token revoked")
+            return
+        if session.expires_at and session.expires_at < datetime.now(timezone.utc):
+            await websocket.close(code=4003, reason="Token expired")
             return
 
     await ws_hub.connect(websocket, batch_id)

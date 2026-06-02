@@ -8,6 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.db.session import get_db
+from app.api.deps import get_current_user
+from app.models.auth_user import AuthUser
 from app.models.candidate import Candidate
 from app.models.upload_batch import UploadBatch
 from app.models.document import Document
@@ -33,6 +35,7 @@ async def upload_documents(
     candidate_gender: Optional[str] = Form(None),
     files: List[UploadFile] = File(...),
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     if not files:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No files provided")
@@ -86,8 +89,11 @@ async def upload_documents(
         # Validate file metadata
         validate_upload_file(file)
 
-        # Read file content
-        file_bytes = await file.read()
+        # Read file content in chunks to limit memory usage
+        chunks = []
+        while chunk := await file.read(1024 * 1024):  # 1MB chunks
+            chunks.append(chunk)
+        file_bytes = b"".join(chunks)
 
         # Validate file content (MIME type check via magic bytes)
         detected_mime = validate_file_content(file_bytes, file.filename)
@@ -99,8 +105,10 @@ async def upload_documents(
         file_dir.mkdir(parents=True, exist_ok=True)
         file_path = file_dir / stored_name
 
-        # Write file
-        file_path.write_bytes(file_bytes)
+        # Write file asynchronously
+        import aiofiles
+        async with aiofiles.open(file_path, "wb") as f:
+            await f.write(file_bytes)
 
         # Create document record
         document = Document(

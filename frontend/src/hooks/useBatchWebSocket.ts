@@ -33,6 +33,8 @@ export function useBatchWebSocket(batchId: string | null): UseBatchWebSocketRetu
   const [summary, setSummary] = useState<ProcessingSummaryData | null>(null);
   const [connected, setConnected] = useState(false);
 
+  const MAX_LOGS = 500;
+
   const handleLog = useCallback((data: Record<string, unknown>) => {
     const logEntry: BatchLogEntry = {
       id: data.id as string,
@@ -45,7 +47,10 @@ export function useBatchWebSocket(batchId: string | null): UseBatchWebSocketRetu
       type: data.level as string,
       status: data.stage as string,
     };
-    setLogs((prev) => [...prev, logEntry]);
+    setLogs((prev) => {
+      const next = [...prev, logEntry];
+      return next.length > MAX_LOGS ? next.slice(-MAX_LOGS) : next;
+    });
   }, []);
 
   const handleCandidateStatus = useCallback((data: Record<string, unknown>) => {

@@ -43,12 +43,12 @@ export default function UploadPage() {
     processing && activeBatch ? activeBatch.id : null
   );
 
-  // Merge WebSocket logs into batchLogs state
+  // Merge WebSocket logs into batchLogs state (only when new logs arrive)
   useEffect(() => {
     if (wsLogs.length > 0) {
       setBatchLogs(wsLogs);
     }
-  }, [wsLogs]);
+  }, [wsLogs.length]);
 
   // Apply candidate status updates from WebSocket
   useEffect(() => {
@@ -62,7 +62,7 @@ export default function UploadPage() {
         return c;
       })
     );
-  }, [candidateUpdates]);
+  }, [candidateUpdates.size]);
 
   // Apply processing summary from WebSocket
   useEffect(() => {

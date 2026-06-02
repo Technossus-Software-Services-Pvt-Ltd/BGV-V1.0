@@ -4,7 +4,8 @@ from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List
 
-from app.api.deps import get_db
+from app.api.deps import get_db, get_current_user
+from app.models.auth_user import AuthUser
 from app.models.batch_import_candidate import BatchImportCandidate
 from app.models.batch_import import BatchImport
 from app.models.notification_log import NotificationLog
@@ -17,6 +18,16 @@ from app.core.logging import get_logger
 logger = get_logger("api.review_queue")
 
 router = APIRouter()
+
+
+def _handle_task_exception(task: asyncio.Task) -> None:
+    """Log unhandled exceptions from fire-and-forget background tasks."""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc:
+        logger.error("background_task_failed", error=str(exc), exc_info=exc)
+
 
 REVIEW_STATUSES = [
     BatchCandidateStatus.PARTIAL.value,
@@ -33,6 +44,7 @@ async def list_review_queue(
     search: Optional[str] = Query(None, max_length=200),
     status: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     """List candidates that need review: partial, awaiting_required_documents, or failed."""
 
@@ -129,6 +141,7 @@ async def list_review_queue(
 async def notify_candidates(
     request: NotifyRequest,
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     """Queue email notifications for selected review queue candidates."""
     logger.info("notify_request_received", candidate_count=len(request.candidate_ids))
@@ -170,7 +183,8 @@ async def notify_candidates(
 
     # Fire background task - does NOT block the response
     logger.info("notify_queued", log_ids=log_ids, count=len(log_ids))
-    asyncio.create_task(NotificationService.send_notifications_background(log_ids))
+    task = asyncio.create_task(NotificationService.send_notifications_background(log_ids))
+    task.add_done_callback(_handle_task_exception)
 
     return NotifyResponse(
         queued=len(log_ids),
@@ -183,6 +197,7 @@ async def notify_candidates(
 async def get_candidate_notifications(
     candidate_id: str,
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     """Get notification history for a specific candidate."""
     result = await db.execute(
@@ -198,6 +213,7 @@ async def get_candidate_notifications(
 async def retry_notification(
     notification_id: str,
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     """Retry a failed notification."""
     logger.info("notify_retry_requested", notification_id=notification_id)

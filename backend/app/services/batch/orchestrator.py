@@ -1,3 +1,4 @@
+import asyncio
 import shutil
 import uuid
 from pathlib import Path
@@ -164,9 +165,10 @@ class BatchOrchestrator:
 
             if gmail_scanner:
                 try:
-                    gmail_attachments = gmail_scanner.search_for_candidate(
-                        candidate_name=bc.source_name,
-                        candidate_email=bc.source_email,
+                    loop = asyncio.get_running_loop()
+                    gmail_attachments = await loop.run_in_executor(
+                        None, gmail_scanner.search_for_candidate,
+                        bc.source_name, bc.source_email,
                     )
                     bc.gmail_emails_found = len(gmail_attachments)
                     await self._log(batch.id, bc.id, "info", "gmail",
@@ -231,7 +233,10 @@ class BatchOrchestrator:
             # Download Gmail attachments
             for att in gmail_attachments:
                 try:
-                    file_bytes = gmail_scanner.download_attachment(att.message_id, att.attachment_id)
+                    loop = asyncio.get_running_loop()
+                    file_bytes = await loop.run_in_executor(
+                        None, gmail_scanner.download_attachment, att.message_id, att.attachment_id
+                    )
                     doc_id = await self._save_document(
                         candidate, upload_batch, att.filename, att.mime_type, file_bytes,
                         batch.correlation_id,
@@ -245,7 +250,10 @@ class BatchOrchestrator:
             # Download Drive files
             for df in drive_files:
                 try:
-                    file_bytes = drive_service.download_file(df.file_id, df.mime_type)
+                    loop = asyncio.get_running_loop()
+                    file_bytes = await loop.run_in_executor(
+                        None, drive_service.download_file, df.file_id, df.mime_type
+                    )
                     filename = df.filename
                     mime = df.mime_type
                     if mime in GoogleDriveService.EXPORTABLE_MIMES:

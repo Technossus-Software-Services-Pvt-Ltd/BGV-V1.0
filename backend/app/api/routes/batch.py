@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func
 
 from app.db.session import get_db
+from app.api.deps import get_current_user
+from app.models.auth_user import AuthUser
 from app.models.batch_import import BatchImport
 from app.models.batch_import_candidate import BatchImportCandidate
 from app.models.batch_log import BatchLog
@@ -37,6 +39,7 @@ ALLOWED_IMPORT_EXTENSIONS = {".csv", ".xlsx", ".xls"}
 async def upload_batch_file(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     """Upload an Excel/CSV file containing candidate data for batch processing."""
     if not file.filename:
@@ -143,6 +146,7 @@ async def start_batch_processing(
     batch_id: str,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     """Start processing a parsed batch import."""
     result = await db.execute(select(BatchImport).where(BatchImport.id == batch_id))
@@ -173,6 +177,7 @@ async def list_batch_imports(
     date_from: Optional[str] = Query(None),
     date_to: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     """List all batch imports with optional filters."""
     query = select(BatchImport).order_by(desc(BatchImport.created_at))
@@ -203,6 +208,7 @@ async def list_batch_imports(
 async def get_batch_detail(
     batch_id: str,
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     """Get batch import with all candidate details."""
     result = await db.execute(select(BatchImport).where(BatchImport.id == batch_id))
@@ -228,6 +234,7 @@ async def list_batch_candidates(
     batch_id: str,
     status_filter: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     """List candidates for a batch import with optional status filter."""
     query = select(BatchImportCandidate).where(
@@ -248,6 +255,7 @@ async def retry_batch_candidate(
     candidate_id: str,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     """Retry processing a failed candidate."""
     result = await db.execute(
@@ -273,6 +281,7 @@ async def get_batch_logs(
     candidate_id: Optional[str] = Query(None),
     level: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     """Get all logs for a batch (REST endpoint for audit page)."""
     result = await db.execute(select(BatchImport).where(BatchImport.id == batch_id))
@@ -313,6 +322,7 @@ async def stream_batch_logs(
     batch_id: str,
     after: Optional[str] = Query(None, description="Return logs after this log ID"),
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     """SSE endpoint for real-time batch processing logs."""
     # Verify batch exists
