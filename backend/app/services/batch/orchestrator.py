@@ -334,7 +334,7 @@ class BatchOrchestrator:
                 # Determine status based on required document checklist coverage
                 matched_mandatory, missing_mandatory = self._get_matched_mandatory(uploaded_doc_types, mandatory_doc_names)
 
-                bc.documents_found = len(confirmed_doc_ids)
+                bc.documents_found = len(mandatory_doc_names) if mandatory_doc_names else len(confirmed_doc_ids)
                 bc.documents_processed = len(uploaded_doc_types) if mandatory_doc_names else len(confirmed_doc_ids)
 
                 upload_batch.processed_files = len(uploaded_doc_types) if mandatory_doc_names else len(confirmed_doc_ids)

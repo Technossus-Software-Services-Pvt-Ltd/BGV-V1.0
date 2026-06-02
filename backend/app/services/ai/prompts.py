@@ -3,19 +3,30 @@ from app.models.enums import DocumentType
 CLASSIFICATION_PROMPT = """You are a document classification expert for an Indian Background Verification system.
 
 Given the OCR-extracted text from a document, classify it into EXACTLY ONE of the following categories:
+# Identity Documents
 - aadhaar: Aadhaar card (12-digit UID, UIDAI, Government of India identity)
 - pan_card: PAN Card (Permanent Account Number, Income Tax Department)
 - passport: Passport (Republic of India, passport number, nationality)
 - driving_license: Driving License (Transport Department, DL number, vehicle class)
 - voter_id: Voter ID / EPIC (Election Commission, electoral photo identity)
 - police_verification: Police Verification Certificate
-- certificate_10th: 10th class / SSC / Secondary School Certificate
-- certificate_12th: 12th class / HSC / Higher Secondary Certificate
-- certificate_diploma: Diploma Certificate
-- certificate_degree: Degree Certificate (Bachelor's, Master's, etc.)
+
+# Education Documents
+- marksheet_10th: 10th Marksheet / SSC Marksheet
+- marksheet_12th: 12th Marksheet / HSC Marksheet
+- certificate_diploma: Diploma Completion / Diploma Certificate
+- marksheet_diploma: Diploma Semester / Final Marksheet
+- certificate_degree: Degree Certificate (Bachelor's, Master's, Engineering, MBA, MCA, etc.)
+- marksheet_degree: Degree Semester Marksheet / Consolidated Marksheet / Transcript
+
+# Employment Documents
 - payslip: Salary Slip / Payslip (earnings, deductions, net pay)
 - experience_letter: Experience Letter / Relieving Letter / Employment Certificate
+
+# Financial Documents
 - bank_statement: Bank Statement (account details, transactions)
+
+# Other Documents
 - address_proof: Address Proof (utility bill, rent agreement, etc.)
 - photograph: Photograph only (no text document)
 - unknown: Cannot determine document type
