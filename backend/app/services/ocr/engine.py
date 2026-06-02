@@ -7,8 +7,11 @@ from typing import Optional
 
 # Fix OpenMP duplicate library crash on Windows (PaddleOCR + NumPy both load libiomp5md.dll)
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-# Disable MKL-DNN/OneDNN to avoid kernel compatibility errors on Windows
+# Disable OneDNN/MKL-DNN to avoid fused_conv2d operator registry bug in PaddlePaddle 3.x
 os.environ["FLAGS_use_mkldnn"] = "0"
+os.environ["FLAGS_use_mkl"] = "0"
+# Use pure-Python protobuf implementation for compatibility between paddlepaddle 2.x pb2 files and protobuf 4+
+os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
 
 from app.core.logging import get_logger
 from app.core.config import settings
@@ -29,6 +32,7 @@ def _get_paddle_ocr():
             use_gpu=False,
             show_log=False,
             enable_mkldnn=False,
+            ir_optim=False,
             cpu_threads=2,
             det_db_thresh=0.3,
             det_db_box_thresh=0.5,

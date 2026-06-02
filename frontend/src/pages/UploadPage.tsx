@@ -11,6 +11,7 @@ import { UploadResponse, BatchImport, BatchCandidate, BatchLogEntry } from '../t
 import { Link } from 'react-router-dom';
 import ProcessingSummary from '../components/ProcessingSummary';
 import LiveExecutionLogs from '../components/LiveExecutionLogs';
+import { useBatchWebSocket } from '../hooks/useBatchWebSocket';
 
 type TabView = 'upload' | 'history';
 
@@ -36,7 +37,52 @@ export default function UploadPage() {
 
   const batchFileInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // WebSocket for real-time updates
+  const { logs: wsLogs, candidateUpdates, summary } = useBatchWebSocket(
+    processing && activeBatch ? activeBatch.id : null
+  );
+
+  // Merge WebSocket logs into batchLogs state
+  useEffect(() => {
+    if (wsLogs.length > 0) {
+      setBatchLogs(wsLogs);
+    }
+  }, [wsLogs]);
+
+  // Apply candidate status updates from WebSocket
+  useEffect(() => {
+    if (candidateUpdates.size === 0) return;
+    setBatchCandidates((prev) =>
+      prev.map((c) => {
+        const update = candidateUpdates.get(c.id);
+        if (update) {
+          return { ...c, ...update };
+        }
+        return c;
+      })
+    );
+  }, [candidateUpdates]);
+
+  // Apply processing summary from WebSocket
+  useEffect(() => {
+    if (!summary || !activeBatch) return;
+    setActiveBatch((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        processed_candidates: summary.completed,
+        failed_candidates: summary.failed,
+        status: summary.batch_status,
+      };
+    });
+
+    // Stop processing when batch reaches terminal status
+    const DONE = ['completed', 'completed_with_errors', 'failed'];
+    if (DONE.includes(summary.batch_status)) {
+      setProcessing(false);
+    }
+  }, [summary]);
 
   // Load batch history
   useEffect(() => {
@@ -44,38 +90,6 @@ export default function UploadPage() {
       listBatchImports({ limit: 50 }).then(setBatchHistory).catch(() => {});
     }
   }, [tab]);
-
-  // Cleanup polling on unmount
-  useEffect(() => {
-    return () => {
-      if (pollingRef.current) clearInterval(pollingRef.current);
-    };
-  }, []);
-
-  const startPolling = (batchId: string) => {
-    if (pollingRef.current) clearInterval(pollingRef.current);
-
-    pollingRef.current = setInterval(async () => {
-      try {
-        const detail = await getBatchDetail(batchId);
-        setActiveBatch(detail.batch);
-        setBatchCandidates(detail.candidates);
-
-        const logs = await getBatchLogs(batchId);
-        setBatchLogs(logs.map((l) => ({ ...l, type: l.level, status: l.stage })));
-
-        // Stop polling when batch is done
-        const DONE = ['completed', 'completed_with_errors', 'failed'];
-        if (DONE.includes(detail.batch.status)) {
-          if (pollingRef.current) clearInterval(pollingRef.current);
-          pollingRef.current = null;
-          setProcessing(false);
-        }
-      } catch {
-        // silent — keep polling
-      }
-    }, 3000);
-  };
 
   // --- Batch upload handler ---
   const handleBatchUpload = async () => {
@@ -115,7 +129,7 @@ export default function UploadPage() {
 
     try {
       await startBatchProcessing(activeBatch.id);
-      startPolling(activeBatch.id);
+      // WebSocket will handle real-time updates via useBatchWebSocket hook
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to start processing';
       setError(msg);
@@ -199,7 +213,7 @@ export default function UploadPage() {
                     setActiveBatch(null);
                     setBatchCandidates([]);
                     setBatchLogs([]);
-                    if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
+                    setProcessing(false);
                   }
                   batchFileInputRef.current?.click();
                 }}

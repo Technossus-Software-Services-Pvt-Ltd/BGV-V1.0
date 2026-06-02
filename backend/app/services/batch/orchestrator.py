@@ -28,6 +28,7 @@ from app.services.audit.logger import AuditService
 from app.services.settings.file_naming_service import FileNamingRuleService
 from app.models.classification import AIClassification
 from app.models.required_document_rule import RequiredDocumentRule
+from app.services.websocket.hub import ws_hub
 from app.core.config import settings
 from app.core.logging import get_logger
 
@@ -93,6 +94,7 @@ class BatchOrchestrator:
             await self._cleanup_batch_local_files(batch)
 
             await self.db.commit()
+            await self._emit_summary(batch)
 
         except Exception as e:
             logger.error("batch_processing_error", batch_id=batch_import_id, error=str(e))
@@ -102,6 +104,7 @@ class BatchOrchestrator:
             # Clean up local files even on failure
             await self._cleanup_batch_local_files(batch)
             await self.db.commit()
+            await self._emit_summary(batch)
 
     async def retry_candidate(self, batch_import_id: str, batch_candidate_id: str) -> None:
         """Retry processing a single failed candidate."""
@@ -148,6 +151,7 @@ class BatchOrchestrator:
             await self._log(batch.id, bc.id, "info", "discovery", f"{prefix}: Starting document discovery")
             bc.status = BatchCandidateStatus.DISCOVERING.value
             await self.db.flush()
+            await self._emit_candidate_status(batch.id, bc)
 
             # Get or create the Candidate record
             candidate = await self._ensure_candidate(bc, batch.correlation_id)
@@ -193,16 +197,20 @@ class BatchOrchestrator:
                 await self._log(batch.id, bc.id, "warning", "discovery",
                                 f"{prefix}: No documents found. Skipping.")
                 await self.db.flush()
+                await self._emit_candidate_status(batch.id, bc)
+                await self._emit_summary(batch)
                 return
 
             bc.status = BatchCandidateStatus.DOCUMENTS_FOUND.value
             await self.db.flush()
+            await self._emit_candidate_status(batch.id, bc)
 
             # === DOWNLOAD & INGEST PHASE ===
             bc.status = BatchCandidateStatus.DOWNLOADING.value
             await self._log(batch.id, bc.id, "info", "download",
                             f"{prefix}: Downloading {total_docs} documents")
             await self.db.flush()
+            await self._emit_candidate_status(batch.id, bc)
 
             # Create an upload batch for this candidate
             upload_batch = UploadBatch(
@@ -258,6 +266,7 @@ class BatchOrchestrator:
             await self._log(batch.id, bc.id, "info", "pipeline",
                             f"{prefix}: Processing {len(document_ids)} documents through pipeline")
             await self.db.flush()
+            await self._emit_candidate_status(batch.id, bc)
 
             # Load required document checklist for filtering
             required_rules = await self._get_required_document_rules()
@@ -319,6 +328,8 @@ class BatchOrchestrator:
                 await self._log(batch.id, bc.id, "warning", "ownership",
                                 f"{prefix}: Ownership not confirmed for any document. Marking as no documents found.")
                 await self.db.flush()
+                await self._emit_candidate_status(batch.id, bc)
+                await self._emit_summary(batch)
             else:
                 # Determine status based on required document checklist coverage
                 matched_mandatory, missing_mandatory = self._get_matched_mandatory(uploaded_doc_types, mandatory_doc_names)
@@ -358,6 +369,8 @@ class BatchOrchestrator:
                                     f"{prefix}: Completed. All {len(mandatory_doc_names)} mandatory documents verified & uploaded.")
 
                 await self.db.flush()
+                await self._emit_candidate_status(batch.id, bc)
+                await self._emit_summary(batch)
 
         except Exception as e:
             bc.status = BatchCandidateStatus.FAILED.value
@@ -365,6 +378,8 @@ class BatchOrchestrator:
             await self._log(batch.id, bc.id, "error", "candidate",
                             f"{prefix}: Failed: {e}")
             await self.db.flush()
+            await self._emit_candidate_status(batch.id, bc)
+            await self._emit_summary(batch)
 
     async def _save_document(
         self,
@@ -513,7 +528,7 @@ class BatchOrchestrator:
         message: str,
         details: Optional[str] = None,
     ) -> None:
-        """Write a batch log entry (used for SSE streaming)."""
+        """Write a batch log entry and emit via WebSocket."""
         log_entry = BatchLog(
             batch_import_id=batch_import_id,
             batch_candidate_id=batch_candidate_id,
@@ -525,6 +540,65 @@ class BatchOrchestrator:
         self.db.add(log_entry)
         await self.db.flush()
         logger.info("batch_log", batch_id=batch_import_id, level=level, stage=stage, message=message)
+
+        # Emit real-time WebSocket event
+        await ws_hub.emit_processing_log(
+            batch_id=batch_import_id,
+            log_id=log_entry.id,
+            batch_candidate_id=batch_candidate_id,
+            level=level,
+            stage=stage,
+            message=message,
+            details=details,
+        )
+
+    async def _emit_candidate_status(self, batch_id: str, bc: BatchImportCandidate) -> None:
+        """Emit candidate status change via WebSocket."""
+        await ws_hub.emit_candidate_status(
+            batch_id=batch_id,
+            candidate_id=bc.id,
+            status=bc.status,
+            documents_found=bc.documents_found or 0,
+            documents_processed=bc.documents_processed or 0,
+            documents_failed=bc.documents_failed or 0,
+            error_message=bc.error_message,
+        )
+
+    async def _emit_summary(self, batch: BatchImport) -> None:
+        """Emit processing summary counts via WebSocket."""
+        candidates = await self._get_batch_candidates(batch.id)
+        in_progress = sum(
+            1 for c in candidates
+            if c.status in (
+                BatchCandidateStatus.PROCESSING.value,
+                BatchCandidateStatus.DISCOVERING.value,
+                BatchCandidateStatus.DOWNLOADING.value,
+                BatchCandidateStatus.DOCUMENTS_FOUND.value,
+            )
+        )
+        completed = sum(1 for c in candidates if c.status == BatchCandidateStatus.COMPLETED.value)
+        failed = sum(1 for c in candidates if c.status == BatchCandidateStatus.FAILED.value)
+        partial = sum(
+            1 for c in candidates
+            if c.status in (
+                BatchCandidateStatus.PARTIAL.value,
+                BatchCandidateStatus.AWAITING_REQUIRED_DOCUMENTS.value,
+            )
+        )
+        pending = sum(1 for c in candidates if c.status == BatchCandidateStatus.PENDING.value)
+        no_documents = sum(1 for c in candidates if c.status == BatchCandidateStatus.NO_DOCUMENTS.value)
+
+        await ws_hub.emit_processing_summary(
+            batch_id=batch.id,
+            total=batch.total_candidates or len(candidates),
+            completed=completed,
+            failed=failed,
+            in_progress=in_progress,
+            partial=partial,
+            pending=pending,
+            no_documents=no_documents,
+            batch_status=batch.status,
+        )
 
     async def _upload_to_drive(
         self,

@@ -1,3 +1,7 @@
+import os
+# Must be set before any protobuf import — enables compatibility between paddlepaddle 2.x pb2 files and protobuf 4+
+os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
+
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,6 +14,7 @@ from app.api.routes import upload, documents, candidates, processing, health, ba
 from app.api.routes import settings as settings_routes
 from app.api.routes import dashboard
 from app.api.routes import review_queue
+from app.api.routes import ws
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -45,3 +50,4 @@ app.include_router(batch.router, prefix="/api/v1", tags=["Batch"])
 app.include_router(settings_routes.router, prefix="/api/v1", tags=["Settings"])
 app.include_router(dashboard.router, prefix="/api/v1", tags=["Dashboard"])
 app.include_router(review_queue.router, prefix="/api/v1", tags=["Review Queue"])
+app.include_router(ws.router, prefix="/api/v1", tags=["WebSocket"])
