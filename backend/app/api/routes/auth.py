@@ -6,13 +6,14 @@ from urllib.parse import urlencode, urlparse
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.db.session import get_db
 from app.models.auth_session import AuthSession
 from app.models.auth_user import AuthUser
+from app.models.oauth_state import OAuthState
 
 router = APIRouter()
 
@@ -20,10 +21,6 @@ _AUTH_URI = "https://accounts.google.com/o/oauth2/v2/auth"
 _TOKEN_URI = "https://oauth2.googleapis.com/token"
 _USERINFO_URI = "https://www.googleapis.com/oauth2/v2/userinfo"
 _REVOKE_URI = "https://oauth2.googleapis.com/revoke"
-
-# Ephemeral state store for local/dev auth flow.
-_state_redirect_store: dict[str, str] = {}
-_state_expiry_store: dict[str, datetime] = {}
 
 
 class GoogleAuthStartResponse(BaseModel):
@@ -90,12 +87,10 @@ def _validate_oauth_config() -> None:
         )
 
 
-def _prune_expired_states() -> None:
+async def _prune_expired_states(db: AsyncSession) -> None:
+    """Remove expired OAuth states from the database."""
     now = datetime.now(timezone.utc)
-    expired = [state for state, expires_at in _state_expiry_store.items() if expires_at <= now]
-    for state in expired:
-        _state_expiry_store.pop(state, None)
-        _state_redirect_store.pop(state, None)
+    await db.execute(delete(OAuthState).where(OAuthState.expires_at <= now))
 
 
 @router.get(
@@ -106,14 +101,22 @@ def _prune_expired_states() -> None:
 async def google_auth_start(
     request: Request,
     redirect_uri: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
 ):
     _validate_oauth_config()
-    _prune_expired_states()
+    await _prune_expired_states(db)
 
     state = str(uuid.uuid4())
     resolved_redirect_uri = _resolve_redirect_uri(request, redirect_uri)
-    _state_redirect_store[state] = resolved_redirect_uri
-    _state_expiry_store[state] = datetime.now(timezone.utc) + timedelta(minutes=10)
+
+    # Store state in database (safe across multiple workers)
+    oauth_state = OAuthState(
+        state=state,
+        redirect_uri=resolved_redirect_uri,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+    )
+    db.add(oauth_state)
+    await db.flush()
 
     params = {
         "client_id": settings.google_client_id,
@@ -139,16 +142,34 @@ async def google_auth_start(
 )
 async def google_auth_callback(payload: GoogleAuthCallbackRequest, db: AsyncSession = Depends(get_db)):
     _validate_oauth_config()
-    _prune_expired_states()
+    await _prune_expired_states(db)
 
-    redirect_uri = _state_redirect_store.pop(payload.state, None)
-    _state_expiry_store.pop(payload.state, None)
+    # Look up state from database (works across multiple workers)
+    result = await db.execute(
+        select(OAuthState).where(OAuthState.state == payload.state)
+    )
+    oauth_state = result.scalar_one_or_none()
 
-    if not redirect_uri:
+    if not oauth_state:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or expired OAuth state. Please sign in again.",
         )
+
+    # Check expiry
+    if oauth_state.expires_at < datetime.now(timezone.utc):
+        await db.delete(oauth_state)
+        await db.flush()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="OAuth state expired. Please sign in again.",
+        )
+
+    redirect_uri = oauth_state.redirect_uri
+
+    # Consume the state (single-use)
+    await db.delete(oauth_state)
+    await db.flush()
 
     token_data = {
         "client_id": settings.google_client_id,
@@ -277,7 +298,6 @@ async def logout(request: Request, db: AsyncSession = Depends(get_db)):
             pass
 
     session.revoked_at = datetime.now(timezone.utc)
-    await db.flush()
-    await db.delete(session)
+    await db.commit()
 
     return LogoutResponse(success=True, message="Signed out successfully")

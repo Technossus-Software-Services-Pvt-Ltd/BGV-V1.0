@@ -1,6 +1,7 @@
 import asyncio
 import shutil
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional
 
@@ -34,6 +35,9 @@ from app.core.config import settings
 from app.core.logging import get_logger
 
 logger = get_logger("batch.orchestrator")
+
+# Dedicated thread pool for blocking Google API I/O calls
+_io_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="google-io")
 
 
 class BatchOrchestrator:
@@ -167,7 +171,7 @@ class BatchOrchestrator:
                 try:
                     loop = asyncio.get_running_loop()
                     gmail_attachments = await loop.run_in_executor(
-                        None, gmail_scanner.search_for_candidate,
+                        _io_executor, gmail_scanner.search_for_candidate,
                         bc.source_name, bc.source_email,
                     )
                     bc.gmail_emails_found = len(gmail_attachments)
@@ -235,7 +239,7 @@ class BatchOrchestrator:
                 try:
                     loop = asyncio.get_running_loop()
                     file_bytes = await loop.run_in_executor(
-                        None, gmail_scanner.download_attachment, att.message_id, att.attachment_id
+                        _io_executor, gmail_scanner.download_attachment, att.message_id, att.attachment_id
                     )
                     doc_id = await self._save_document(
                         candidate, upload_batch, att.filename, att.mime_type, file_bytes,
@@ -252,7 +256,7 @@ class BatchOrchestrator:
                 try:
                     loop = asyncio.get_running_loop()
                     file_bytes = await loop.run_in_executor(
-                        None, drive_service.download_file, df.file_id, df.mime_type
+                        _io_executor, drive_service.download_file, df.file_id, df.mime_type
                     )
                     filename = df.filename
                     mime = df.mime_type

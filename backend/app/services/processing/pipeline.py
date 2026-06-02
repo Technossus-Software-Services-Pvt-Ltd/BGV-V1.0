@@ -36,15 +36,24 @@ class ProcessingPipeline:
     Upload → Normalize → OCR → AI Classification → Validation → Result
     """
 
+    # Class-level singletons for heavy/stateless services
+    _ocr_engine = PaddleOCREngine()
+    _preprocessor = DocumentPreprocessor()
+    _confidence_evaluator = OCRConfidenceEvaluator()
+    _ai_classifier = AIClassifier()
+    _ownership_validator = OwnershipValidator()
+    _normalizer = DocumentNormalizer()
+    _splitter = DocumentSplitter()
+
     def __init__(self, db: AsyncSession):
         self.db = db
-        self.ocr_engine = PaddleOCREngine()
-        self.preprocessor = DocumentPreprocessor()
-        self.confidence_evaluator = OCRConfidenceEvaluator()
-        self.ai_classifier = AIClassifier()
-        self.ownership_validator = OwnershipValidator()
-        self.normalizer = DocumentNormalizer()
-        self.splitter = DocumentSplitter()
+        self.ocr_engine = self._ocr_engine
+        self.preprocessor = self._preprocessor
+        self.confidence_evaluator = self._confidence_evaluator
+        self.ai_classifier = self._ai_classifier
+        self.ownership_validator = self._ownership_validator
+        self.normalizer = self._normalizer
+        self.splitter = self._splitter
         self.audit = AuditService(db)
 
     async def process_document(self, document_id: str) -> None:

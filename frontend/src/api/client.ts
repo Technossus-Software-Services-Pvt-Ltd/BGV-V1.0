@@ -18,16 +18,26 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// Prevent multiple simultaneous 401 redirects
+let isRedirecting = false;
+
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     const status = error.response?.status;
 
     // Auto-redirect to login on 401 (session expired/invalid)
-    if (status === 401) {
+    if (status === 401 && !isRedirecting) {
+      isRedirecting = true;
       clearStoredUser();
       window.location.href = '/login';
-      return Promise.reject(error);
+      // Return a never-resolving promise to prevent downstream error handlers
+      return new Promise(() => {});
+    }
+
+    // If already redirecting, suppress additional 401 errors
+    if (status === 401 && isRedirecting) {
+      return new Promise(() => {});
     }
 
     const message = error.response?.data?.detail || error.message || 'An unexpected error occurred';

@@ -20,6 +20,10 @@ import {
   RequiredDocumentChecklistSaveRequest,
   FileNamingRule,
   FileNamingRuleSaveRequest,
+  ReviewQueueItem,
+  ReviewQueueResponse,
+  NotificationLogItem,
+  DashboardStats,
 } from '../types';
 import { GoogleAuthStartResponse, GoogleAuthCallbackResponse } from '../types/auth';
 
@@ -146,13 +150,69 @@ export async function retryBatchCandidate(
   return response.data;
 }
 
-export function createBatchLogStream(batchId: string): EventSource {
+export function createBatchLogStream(batchId: string): { close: () => void; onMessage: (handler: (event: string, data: string) => void) => void } {
   const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api/v1';
   const token = getSessionToken();
-  const url = token
-    ? `${baseUrl}/batch/${batchId}/logs?token=${encodeURIComponent(token)}`
-    : `${baseUrl}/batch/${batchId}/logs`;
-  return new EventSource(url);
+  const url = `${baseUrl}/batch/${batchId}/logs`;
+
+  let aborted = false;
+  const controller = new AbortController();
+  let messageHandler: ((event: string, data: string) => void) | null = null;
+
+  // Use fetch with Authorization header instead of EventSource (which can't set headers)
+  (async () => {
+    try {
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': token ? `Bearer ${token}` : '',
+          'Accept': 'text/event-stream',
+        },
+        signal: controller.signal,
+      });
+
+      if (!response.ok || !response.body) return;
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (!aborted) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        let currentEvent = 'message';
+        let currentData = '';
+
+        for (const line of lines) {
+          if (line.startsWith('event:')) {
+            currentEvent = line.slice(6).trim();
+          } else if (line.startsWith('data:')) {
+            currentData = line.slice(5).trim();
+          } else if (line === '' && currentData) {
+            messageHandler?.(currentEvent, currentData);
+            currentEvent = 'message';
+            currentData = '';
+          }
+        }
+      }
+    } catch {
+      // Connection closed or aborted
+    }
+  })();
+
+  return {
+    close: () => {
+      aborted = true;
+      controller.abort();
+    },
+    onMessage: (handler) => {
+      messageHandler = handler;
+    },
+  };
 }
 export interface BatchLogItem {
   id: string;
@@ -257,24 +317,6 @@ export async function saveFileNamingRule(
 
 // === Dashboard ===
 
-export interface DashboardStats {
-  summary: {
-    total_documents: number;
-    completed_documents: number;
-    failed_documents: number;
-    skipped_documents: number;
-    in_progress_documents: number;
-    total_batches: number;
-    total_candidates: number;
-  };
-  document_status: { status: string; count: number }[];
-  batch_status: { status: string; count: number }[];
-  ownership_verification: { status: string; count: number }[];
-  daily_documents: { date: string; count: number }[];
-  daily_batches: { date: string; count: number }[];
-  document_types: { type: string; count: number }[];
-}
-
 export async function getDashboardStats(): Promise<DashboardStats> {
   const response = await api.get('/dashboard/stats');
   return response.data;
@@ -302,7 +344,7 @@ export async function getReviewQueue(params?: {
   limit?: number;
   search?: string;
   status?: string;
-}): Promise<{ items: any[]; total: number }> {
+}): Promise<ReviewQueueResponse> {
   const response = await api.get('/review-queue', { params });
   return response.data;
 }
@@ -312,7 +354,7 @@ export async function notifyReviewCandidates(candidateIds: string[]): Promise<{ 
   return response.data;
 }
 
-export async function getNotificationHistory(candidateId: string): Promise<any[]> {
+export async function getNotificationHistory(candidateId: string): Promise<NotificationLogItem[]> {
   const response = await api.get(`/review-queue/notifications/${candidateId}`);
   return response.data;
 }

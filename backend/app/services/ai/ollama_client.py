@@ -32,16 +32,22 @@ class OllamaResponse:
 
 
 class OllamaClient:
-    """Client for communicating with local Ollama instance."""
+    """Client for communicating with local Ollama instance.
+
+    Reuses a persistent httpx.AsyncClient for connection pooling.
+    """
 
     def __init__(self):
         self.base_url = settings.ollama_base_url
         self.model = settings.ollama_model
         self.timeout = settings.ai_timeout_seconds
+        self._client = httpx.AsyncClient(
+            base_url=self.base_url,
+            timeout=httpx.Timeout(self.timeout, connect=10.0),
+        )
 
     async def generate(self, prompt: str, temperature: float = 0.1) -> OllamaResponse:
         start_time = time.time()
-        url = f"{self.base_url}/api/generate"
 
         payload = {
             "model": self.model,
@@ -57,10 +63,9 @@ class OllamaClient:
         }
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.post(url, json=payload)
-                response.raise_for_status()
-                data = response.json()
+            response = await self._client.post("/api/generate", json=payload)
+            response.raise_for_status()
+            data = response.json()
 
             duration_ms = int((time.time() - start_time) * 1000)
 
@@ -118,22 +123,24 @@ class OllamaClient:
 
     async def check_health(self) -> bool:
         try:
-            async with httpx.AsyncClient(timeout=5) as client:
-                response = await client.get(f"{self.base_url}/api/tags")
-                return response.status_code == 200
+            response = await self._client.get("/api/tags")
+            return response.status_code == 200
         except Exception:
             return False
 
     async def ensure_model_available(self) -> bool:
         try:
-            async with httpx.AsyncClient(timeout=5) as client:
-                response = await client.get(f"{self.base_url}/api/tags")
-                if response.status_code != 200:
-                    return False
-                data = response.json()
-                models = [m["name"] for m in data.get("models", [])]
-                # Check if model is available (with or without tag)
-                model_base = self.model.split(":")[0]
-                return any(model_base in m for m in models)
+            response = await self._client.get("/api/tags")
+            if response.status_code != 200:
+                return False
+            data = response.json()
+            models = [m["name"] for m in data.get("models", [])]
+            # Check if model is available (with or without tag)
+            model_base = self.model.split(":")[0]
+            return any(model_base in m for m in models)
         except Exception:
             return False
+
+    async def close(self):
+        """Close the underlying HTTP client."""
+        await self._client.aclose()

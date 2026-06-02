@@ -111,6 +111,7 @@ async def get_gmail_auth_url(
     existing["_oauth_state"] = state
     existing["_redirect_uri"] = redirect_uri
     existing["_code_verifier"] = flow.code_verifier
+    existing["_oauth_user_id"] = str(_current_user.id)
     config.config_json = json.dumps(existing)
     await db.commit()
 
@@ -135,6 +136,14 @@ async def gmail_oauth_callback(
     if not stored_state or not secrets.compare_digest(state, stored_state):
         return HTMLResponse(
             "<html><body><h2>Error: Invalid state parameter</h2></body></html>",
+            status_code=400,
+        )
+
+    # Verify this state was issued by a known authenticated user (prevents state fixation)
+    stored_user_id = client_cfg.get("_oauth_user_id")
+    if not stored_user_id:
+        return HTMLResponse(
+            "<html><body><h2>Error: OAuth state not bound to a user session</h2></body></html>",
             status_code=400,
         )
 
@@ -195,6 +204,7 @@ async def gmail_oauth_callback(
     client_cfg.pop("_oauth_state", None)
     client_cfg.pop("_redirect_uri", None)
     client_cfg.pop("_code_verifier", None)
+    client_cfg.pop("_oauth_user_id", None)
     if connected_email:
         client_cfg["connected_email"] = connected_email
     config.config_json = json.dumps(client_cfg)

@@ -2,7 +2,7 @@ import asyncio
 import json
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import List, Set
 
 from sqlalchemy import select
@@ -256,3 +256,28 @@ class NotificationService:
             log_entry.status = NotificationStatus.FAILED.value
             log_entry.error_message = reason
         await db.commit()
+
+    @staticmethod
+    async def recover_stuck_notifications(max_age_minutes: int = 30) -> None:
+        """Recover notifications stuck in 'queued' status beyond max_age_minutes.
+
+        Should be called on application startup to handle notifications
+        that were queued but never processed (e.g., due to worker crash).
+        """
+        from app.db.session import AsyncSessionLocal
+
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=max_age_minutes)
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(NotificationLog).where(
+                    NotificationLog.status == NotificationStatus.QUEUED.value,
+                    NotificationLog.created_at <= cutoff,
+                )
+            )
+            stuck = list(result.scalars().all())
+            if not stuck:
+                return
+
+            stuck_ids = [n.id for n in stuck]
+            logger.warning("recovering_stuck_notifications", count=len(stuck_ids))
+            await NotificationService.send_notifications_background(stuck_ids)

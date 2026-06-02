@@ -3,8 +3,9 @@ import os
 os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.core.config import settings
 from app.core.logging import setup_logging
@@ -22,6 +23,9 @@ async def lifespan(app: FastAPI):
     if settings.environment == "development":
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+    # Recover notifications stuck in queued state from prior crashes
+    from app.services.notifications.email_service import NotificationService
+    await NotificationService.recover_stuck_notifications()
     yield
     await engine.dispose()
 
@@ -52,3 +56,28 @@ app.include_router(settings_routes.router, prefix="/api/v1", tags=["Settings"])
 app.include_router(dashboard.router, prefix="/api/v1", tags=["Dashboard"])
 app.include_router(review_queue.router, prefix="/api/v1", tags=["Review Queue"])
 app.include_router(ws.router, prefix="/api/v1", tags=["WebSocket"])
+
+
+# Global exception handler for domain exceptions
+from app.core.exceptions import (
+    BGVBaseException, DocumentNotFoundError, CandidateNotFoundError,
+    ValidationError, OllamaConnectionError, ProcessingTimeoutError,
+)
+
+
+@app.exception_handler(BGVBaseException)
+async def bgv_exception_handler(request: Request, exc: BGVBaseException):
+    if isinstance(exc, (DocumentNotFoundError, CandidateNotFoundError)):
+        status_code = 404
+    elif isinstance(exc, ValidationError):
+        status_code = 422
+    elif isinstance(exc, OllamaConnectionError):
+        status_code = 503
+    elif isinstance(exc, ProcessingTimeoutError):
+        status_code = 504
+    else:
+        status_code = 500
+    return JSONResponse(
+        status_code=status_code,
+        content={"detail": exc.message, "correlation_id": exc.correlation_id},
+    )

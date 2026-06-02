@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import List, Optional
 from datetime import datetime, timezone
 
+import aiofiles
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status, BackgroundTasks, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -74,7 +75,8 @@ async def upload_batch_file(
     file_dir = settings.upload_path / "batch_imports"
     file_dir.mkdir(parents=True, exist_ok=True)
     file_path = file_dir / stored_name
-    file_path.write_bytes(file_bytes)
+    async with aiofiles.open(file_path, "wb") as f:
+        await f.write(file_bytes)
 
     # Create batch import record
     batch = BatchImport(
@@ -350,8 +352,9 @@ async def _log_stream_generator(batch_id: str, after_id: Optional[str]):
     consecutive_empty = 0
     max_empty = 120  # ~2 minutes of no new logs before closing
 
-    while True:
-        async with AsyncSessionLocal() as db:
+    # Use a single session for the entire stream to avoid connection pool churn
+    async with AsyncSessionLocal() as db:
+        while True:
             query = (
                 select(BatchLog)
                 .where(BatchLog.batch_import_id == batch_id)
@@ -406,7 +409,9 @@ async def _log_stream_generator(batch_id: str, after_id: Optional[str]):
                 yield f"data: {json.dumps({'type': 'timeout'})}\n\n"
                 return
 
-        await asyncio.sleep(1)
+            # Expire cached ORM state so next iteration sees fresh data
+            db.expire_all()
+            await asyncio.sleep(1)
 
 
 async def _process_batch_background(batch_import_id: str):

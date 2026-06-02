@@ -2,6 +2,7 @@ import os
 import time
 import asyncio
 import json
+import threading
 import numpy as np
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
@@ -20,26 +21,35 @@ from app.core.config import settings
 
 logger = get_logger("ocr.engine")
 
-# Lazy-loaded PaddleOCR instance (singleton for memory efficiency)
+# Thread-safe lazy-loaded PaddleOCR instance (singleton for memory efficiency)
 _paddle_ocr_instance = None
+_paddle_ocr_lock = threading.Lock()
+
+# Dedicated thread pool for OCR to avoid starving the shared executor
+_ocr_executor = ThreadPoolExecutor(
+    max_workers=settings.max_concurrent_ocr,
+    thread_name_prefix="ocr",
+)
 
 
 def _get_paddle_ocr():
     global _paddle_ocr_instance
     if _paddle_ocr_instance is None:
-        from paddleocr import PaddleOCR
-        _paddle_ocr_instance = PaddleOCR(
-            use_angle_cls=True,
-            lang="en",
-            use_gpu=False,
-            show_log=False,
-            enable_mkldnn=False,
-            ir_optim=False,
-            cpu_threads=2,
-            det_db_thresh=0.3,
-            det_db_box_thresh=0.5,
-            rec_batch_num=6,
-        )
+        with _paddle_ocr_lock:
+            if _paddle_ocr_instance is None:  # Double-check locking
+                from paddleocr import PaddleOCR
+                _paddle_ocr_instance = PaddleOCR(
+                    use_angle_cls=True,
+                    lang="en",
+                    use_gpu=False,
+                    show_log=False,
+                    enable_mkldnn=False,
+                    ir_optim=False,
+                    cpu_threads=2,
+                    det_db_thresh=0.3,
+                    det_db_box_thresh=0.5,
+                    rec_batch_num=6,
+                )
     return _paddle_ocr_instance
 
 
@@ -205,15 +215,13 @@ class PaddleOCREngine:
                 error=str(e),
             )
 
-    # Thread pool for offloading CPU-bound OCR work from the async event loop
-    _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ocr")
-
+    # Use the module-level dedicated OCR executor instead of a per-instance pool
     async def process_async(self, image_array: np.ndarray) -> OCREngineResult:
-        """Run OCR in a thread pool to avoid blocking the event loop."""
+        """Run OCR in a dedicated thread pool to avoid blocking the event loop."""
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, self.process, image_array)
+        return await loop.run_in_executor(_ocr_executor, self.process, image_array)
 
     async def process_from_path_async(self, image_path: Path) -> OCREngineResult:
-        """Run path-based OCR in a thread pool to avoid blocking the event loop."""
+        """Run path-based OCR in a dedicated thread pool to avoid blocking the event loop."""
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, self.process_from_path, image_path)
+        return await loop.run_in_executor(_ocr_executor, self.process_from_path, image_path)

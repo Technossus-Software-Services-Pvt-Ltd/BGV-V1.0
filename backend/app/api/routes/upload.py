@@ -3,7 +3,8 @@ import asyncio
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, status, BackgroundTasks, Request
+import aiofiles
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -25,9 +26,17 @@ router = APIRouter()
 logger = get_logger("api.upload")
 
 
+def _handle_task_exception(task: asyncio.Task) -> None:
+    """Log unhandled exceptions from fire-and-forget background tasks."""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc:
+        logger.error("background_task_failed", error=str(exc), exc_info=exc)
+
+
 @router.post("/upload", response_model=UploadResponse, status_code=status.HTTP_202_ACCEPTED)
 async def upload_documents(
-    background_tasks: BackgroundTasks,
     request: Request,
     candidate_id: str = Form(...),
     candidate_name: str = Form(...),
@@ -106,7 +115,6 @@ async def upload_documents(
         file_path = file_dir / stored_name
 
         # Write file asynchronously
-        import aiofiles
         async with aiofiles.open(file_path, "wb") as f:
             await f.write(file_bytes)
 
@@ -148,10 +156,11 @@ async def upload_documents(
 
     await db.commit()
 
-    # Queue background processing for each document
+    # Queue background processing for each document (non-blocking asyncio tasks)
     logger.info("upload_complete", batch_reference=batch_reference, file_count=len(files), correlation_id=correlation_id)
     for doc_info in document_records:
-        background_tasks.add_task(_process_document_background, doc_info["id"])
+        task = asyncio.create_task(_process_document_background(doc_info["id"]))
+        task.add_done_callback(_handle_task_exception)
 
     return UploadResponse(
         batch_id=batch.id,

@@ -24,17 +24,24 @@ export default function BatchDetailPage() {
       setBatch(detail.batch);
       setCandidates(detail.candidates);
 
-      // Fetch documents only for candidates in this batch (avoid fetching all docs)
+      // Fetch documents in controlled chunks to avoid flooding the backend
       const candidateIds = detail.candidates
         .map((c) => c.candidate_id)
         .filter(Boolean) as string[];
 
       if (candidateIds.length > 0) {
-        const docPromises = candidateIds.map((cid) =>
-          listDocuments({ candidate_id: cid, limit: 100 })
-        );
-        const docResults = await Promise.all(docPromises);
-        setDocuments(docResults.flat());
+        const CHUNK_SIZE = 5;
+        const allDocs: DocumentListItem[] = [];
+
+        for (let i = 0; i < candidateIds.length; i += CHUNK_SIZE) {
+          const chunk = candidateIds.slice(i, i + CHUNK_SIZE);
+          const chunkResults = await Promise.all(
+            chunk.map((cid) => listDocuments({ candidate_id: cid, limit: 100 }))
+          );
+          allDocs.push(...chunkResults.flat());
+        }
+
+        setDocuments(allDocs);
       } else {
         setDocuments([]);
       }

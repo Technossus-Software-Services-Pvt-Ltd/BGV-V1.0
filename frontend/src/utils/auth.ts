@@ -3,6 +3,15 @@ import { AuthUser } from '../types/auth';
 const AUTH_USER_KEY = 'bgv_auth_user';
 const AUTH_SESSION_KEY = 'bgv_auth_session';
 
+/**
+ * Session token is stored in sessionStorage (not localStorage) to reduce exposure:
+ * - sessionStorage is cleared when the tab/window closes
+ * - Not shared across tabs (limits blast radius of XSS)
+ * - User profile is kept in localStorage for cross-tab sync (non-sensitive data)
+ *
+ * NOTE: For production hardening, migrate to httpOnly cookies set by the backend.
+ */
+
 export function getStoredUser(): AuthUser | null {
   try {
     const raw = localStorage.getItem(AUTH_USER_KEY);
@@ -18,16 +27,20 @@ export function setStoredUser(user: AuthUser): void {
 }
 
 export function getSessionToken(): string | null {
-  return localStorage.getItem(AUTH_SESSION_KEY);
+  // Check sessionStorage first, then localStorage for migration
+  return sessionStorage.getItem(AUTH_SESSION_KEY) || localStorage.getItem(AUTH_SESSION_KEY);
 }
 
 export function setSessionToken(token: string): void {
-  localStorage.setItem(AUTH_SESSION_KEY, token);
+  sessionStorage.setItem(AUTH_SESSION_KEY, token);
+  // Remove from localStorage if previously stored there (migration)
+  localStorage.removeItem(AUTH_SESSION_KEY);
 }
 
 export function clearStoredUser(): void {
   localStorage.removeItem(AUTH_USER_KEY);
   localStorage.removeItem(AUTH_SESSION_KEY);
+  sessionStorage.removeItem(AUTH_SESSION_KEY);
 }
 
 export function isAuthenticated(): boolean {

@@ -232,6 +232,7 @@ async def retry_notification(
     log_entry.error_message = None
     await db.commit()
 
-    asyncio.create_task(NotificationService.send_notifications_background([log_entry.id]))
+    task = asyncio.create_task(NotificationService.send_notifications_background([log_entry.id]))
+    task.add_done_callback(_handle_task_exception)
 
     return {"message": "Notification retry queued"}

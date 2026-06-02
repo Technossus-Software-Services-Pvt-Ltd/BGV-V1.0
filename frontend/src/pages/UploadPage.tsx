@@ -1,17 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
 import { uploadDocuments } from '../api/endpoints';
-import {
-  uploadBatchFile,
-  startBatchProcessing,
-  getBatchDetail,
-  listBatchImports,
-  getBatchLogs,
-} from '../api/endpoints';
-import { UploadResponse, BatchImport, BatchCandidate, BatchLogEntry } from '../types';
+import { UploadResponse } from '../types';
 import { Link } from 'react-router-dom';
 import ProcessingSummary from '../components/ProcessingSummary';
 import LiveExecutionLogs from '../components/LiveExecutionLogs';
-import { useBatchWebSocket } from '../hooks/useBatchWebSocket';
+import { useBatchProcessing } from '../hooks/useBatchProcessing';
 
 type TabView = 'upload' | 'history';
 
@@ -25,116 +18,40 @@ export default function UploadPage() {
   const [uploading, setUploading] = useState(false);
   const [manualResult, setManualResult] = useState<UploadResponse | null>(null);
 
-  // --- Batch upload state ---
+  // --- Batch upload state (extracted hook) ---
   const [batchFile, setBatchFile] = useState<File | null>(null);
-  const [batchUploading, setBatchUploading] = useState(false);
-  const [activeBatch, setActiveBatch] = useState<BatchImport | null>(null);
-  const [batchCandidates, setBatchCandidates] = useState<BatchCandidate[]>([]);
-  const [batchLogs, setBatchLogs] = useState<BatchLogEntry[]>([]);
-  const [batchHistory, setBatchHistory] = useState<BatchImport[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [processing, setProcessing] = useState(false);
+  const {
+    activeBatch,
+    batchCandidates,
+    batchLogs,
+    batchHistory,
+    error,
+    setError,
+    batchUploading,
+    processing,
+    loadHistory,
+    handleBatchUpload,
+    handleStartProcessing,
+    viewBatchDetail,
+    resetBatch,
+    clearLogs,
+  } = useBatchProcessing();
 
   const batchFileInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // WebSocket for real-time updates
-  const { logs: wsLogs, candidateUpdates, summary } = useBatchWebSocket(
-    processing && activeBatch ? activeBatch.id : null
-  );
-
-  // Merge WebSocket logs into batchLogs state (only when new logs arrive)
-  useEffect(() => {
-    if (wsLogs.length > 0) {
-      setBatchLogs(wsLogs);
-    }
-  }, [wsLogs.length]);
-
-  // Apply candidate status updates from WebSocket
-  useEffect(() => {
-    if (candidateUpdates.size === 0) return;
-    setBatchCandidates((prev) =>
-      prev.map((c) => {
-        const update = candidateUpdates.get(c.id);
-        if (update) {
-          return { ...c, ...update };
-        }
-        return c;
-      })
-    );
-  }, [candidateUpdates.size]);
-
-  // Apply processing summary from WebSocket
-  useEffect(() => {
-    if (!summary || !activeBatch) return;
-    setActiveBatch((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        processed_candidates: summary.completed,
-        failed_candidates: summary.failed,
-        status: summary.batch_status,
-      };
-    });
-
-    // Stop processing when batch reaches terminal status
-    const DONE = ['completed', 'completed_with_errors', 'failed'];
-    if (DONE.includes(summary.batch_status)) {
-      setProcessing(false);
-    }
-  }, [summary]);
-
   // Load batch history
   useEffect(() => {
     if (tab === 'history') {
-      listBatchImports({ limit: 50 }).then(setBatchHistory).catch(() => {});
+      loadHistory();
     }
   }, [tab]);
 
   // --- Batch upload handler ---
-  const handleBatchUpload = async () => {
+  const onBatchUpload = async () => {
     if (!batchFile) return;
-
-    setBatchUploading(true);
-    setError(null);
-    setActiveBatch(null);
-    setBatchCandidates([]);
-    setBatchLogs([]);
-
-    try {
-      const formData = new FormData();
-      formData.append('file', batchFile);
-
-      const response = await uploadBatchFile(formData);
-      // Fetch full batch detail
-      const detail = await getBatchDetail(response.batch_id);
-      setActiveBatch(detail.batch);
-      setBatchCandidates(detail.candidates);
-      setBatchFile(null);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Batch upload failed';
-      setError(msg);
-    } finally {
-      setBatchUploading(false);
-    }
-  };
-
-  // --- Start processing ---
-  const handleStartProcessing = async () => {
-    if (!activeBatch) return;
-
-    setProcessing(true);
-    setError(null);
-    setBatchLogs([]);
-
-    try {
-      await startBatchProcessing(activeBatch.id);
-      // WebSocket will handle real-time updates via useBatchWebSocket hook
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to start processing';
-      setError(msg);
-      setProcessing(false);
-    }
+    await handleBatchUpload(batchFile);
+    setBatchFile(null);
   };
 
   // --- Manual upload handler ---
@@ -210,10 +127,7 @@ export default function UploadPage() {
               <button
                 onClick={() => {
                   if (activeBatch) {
-                    setActiveBatch(null);
-                    setBatchCandidates([]);
-                    setBatchLogs([]);
-                    setProcessing(false);
+                    resetBatch();
                   }
                   batchFileInputRef.current?.click();
                 }}
@@ -286,8 +200,8 @@ export default function UploadPage() {
                     <span className="text-xs text-gray-400">({(batchFile.size / 1024).toFixed(0)} KB)</span>
                     <button onClick={() => setBatchFile(null)} className="text-gray-400 hover:text-red-500 text-xs ml-2">Remove</button>
                   </div>
-                  <button
-                    onClick={handleBatchUpload}
+                    <button
+                    onClick={onBatchUpload}
                     disabled={batchUploading}
                     className="btn-primary"
                   >
@@ -375,7 +289,7 @@ export default function UploadPage() {
                 {/* Right: Live Execution Logs */}
                 <div className="lg:col-span-4">
                   <div className="card p-4">
-                    <LiveExecutionLogs logs={batchLogs} onClear={() => setBatchLogs([])} />
+                    <LiveExecutionLogs logs={batchLogs} onClear={clearLogs} />
                   </div>
                 </div>
               </div>
@@ -487,12 +401,7 @@ export default function UploadPage() {
                       <td className="px-4 py-3.5">
                         <button
                           onClick={async () => {
-                            const detail = await getBatchDetail(b.id);
-                            setActiveBatch(detail.batch);
-                            setBatchCandidates(detail.candidates);
-                            // Load logs from backend
-                            const logs = await getBatchLogs(b.id);
-                            setBatchLogs(logs.map((l) => ({ ...l, type: l.level, status: l.stage })));
+                            await viewBatchDetail(b.id);
                             setTab('upload');
                           }}
                           className="text-xs text-primary-600 hover:text-primary-800 font-medium"

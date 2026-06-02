@@ -1,43 +1,9 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getReviewQueue, notifyReviewCandidates, getNotificationHistory, retryNotification } from '../api/endpoints';
+import { ReviewQueueItem, NotificationLogItem, ReviewQueueResponse } from '../types';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ErrorMessage from '../components/ErrorMessage';
-
-interface ReviewQueueItem {
-  id: string;
-  batch_import_id: string;
-  batch_code: string;
-  candidate_id: string | null;
-  source_candidate_id: string;
-  source_name: string;
-  source_email: string | null;
-  status: string;
-  documents_found: number;
-  documents_processed: number;
-  error_message: string | null;
-  notification_status: string | null;
-  notification_sent_at: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface NotificationLogItem {
-  id: string;
-  candidate_id: string;
-  recipient_email: string;
-  subject: string;
-  body_html: string;
-  status: string;
-  error_message: string | null;
-  sent_at: string | null;
-  created_at: string;
-}
-
-interface ReviewQueueResponse {
-  items: ReviewQueueItem[];
-  total: number;
-}
 
 const PAGE_SIZE = 20;
 

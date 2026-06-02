@@ -30,6 +30,14 @@ class WebSocketHub:
             self._rooms[batch_id].add(websocket)
         logger.info("ws_connected", batch_id=batch_id, clients=len(self._rooms[batch_id]))
 
+    async def connect_existing(self, websocket: WebSocket, batch_id: str) -> None:
+        """Add an already-accepted WebSocket to the batch room (no accept call)."""
+        async with self._lock:
+            if batch_id not in self._rooms:
+                self._rooms[batch_id] = set()
+            self._rooms[batch_id].add(websocket)
+        logger.info("ws_connected", batch_id=batch_id, clients=len(self._rooms[batch_id]))
+
     async def disconnect(self, websocket: WebSocket, batch_id: str) -> None:
         """Remove a WebSocket connection from the batch room."""
         async with self._lock:

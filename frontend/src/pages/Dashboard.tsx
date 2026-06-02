@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { getDashboardStats, DashboardStats } from '../api/endpoints';
+import { getDashboardStats } from '../api/endpoints';
+import { DashboardStats } from '../types';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ErrorMessage from '../components/ErrorMessage';
 import {

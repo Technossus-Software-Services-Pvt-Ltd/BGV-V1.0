@@ -66,12 +66,14 @@ export class BatchWebSocketService {
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
-    const url = `${protocol}//${host}/api/v1/ws/batch/${this.batchId}?token=${encodeURIComponent(token)}`;
+    const url = `${protocol}//${host}/api/v1/ws/batch/${this.batchId}`;
 
     try {
       this.ws = new WebSocket(url);
 
       this.ws.onopen = () => {
+        // Authenticate via first message (token never exposed in URL)
+        this.ws?.send(JSON.stringify({ type: 'auth', token }));
         this.reconnectAttempts = 0;
         this._startHeartbeat();
         this._emit('connected', {});

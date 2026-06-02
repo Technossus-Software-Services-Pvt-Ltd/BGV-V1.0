@@ -30,8 +30,8 @@ async def list_documents(
     status_filter: str = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
-    skip: int = 0,
-    limit: int = 50,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     _current_user: AuthUser = Depends(get_current_user),
 ):
@@ -42,9 +42,15 @@ async def list_documents(
     if status_filter:
         query = query.where(Document.processing_status == status_filter)
     if date_from:
-        query = query.where(Document.created_at >= datetime.strptime(date_from, "%Y-%m-%d"))
+        try:
+            query = query.where(Document.created_at >= datetime.strptime(date_from, "%Y-%m-%d"))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date_from format. Use YYYY-MM-DD")
     if date_to:
-        query = query.where(Document.created_at < datetime.strptime(date_to, "%Y-%m-%d") + timedelta(days=1))
+        try:
+            query = query.where(Document.created_at < datetime.strptime(date_to, "%Y-%m-%d") + timedelta(days=1))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date_to format. Use YYYY-MM-DD")
 
     query = query.offset(skip).limit(limit)
     result = await db.execute(query)
