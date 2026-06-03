@@ -26,7 +26,6 @@ export default function DocumentDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'ocr' | 'classification' | 'validation' | 'timeline'>('ocr');
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const loadDataRef = useRef<(showLoading?: boolean) => Promise<void>>();
 
   const loadData = useCallback(async (showLoading = true) => {
@@ -57,16 +56,24 @@ export default function DocumentDetailPage() {
     loadData();
   }, [loadData]);
 
-  // Auto-poll while processing is in progress
+  // Auto-poll while processing is in progress (only when tab is visible)
   useEffect(() => {
-    if (detail && !TERMINAL_STATUSES.includes(detail.document.processing_status)) {
-      pollRef.current = setInterval(() => loadDataRef.current?.(false), 5000);
-    } else if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
+    if (!detail || TERMINAL_STATUSES.includes(detail.document.processing_status)) return;
+
+    const poll = () => {
+      if (document.visibilityState === 'visible') {
+        loadDataRef.current?.(false);
+      }
+    };
+    const id = setInterval(poll, 5000);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') poll();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
     return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [detail?.document.processing_status]);
 

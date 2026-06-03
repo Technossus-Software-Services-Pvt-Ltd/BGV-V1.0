@@ -2,6 +2,8 @@ import time
 import httpx
 from typing import Optional
 
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.exceptions import OllamaConnectionError
@@ -43,7 +45,7 @@ class OllamaClient:
         self.timeout = settings.ai_timeout_seconds
         self._client = httpx.AsyncClient(
             base_url=self.base_url,
-            timeout=httpx.Timeout(self.timeout, connect=10.0),
+            timeout=httpx.Timeout(self.timeout, connect=settings.ollama_connect_timeout),
         )
 
     async def generate(self, prompt: str, temperature: float = 0.1) -> OllamaResponse:
@@ -56,15 +58,14 @@ class OllamaClient:
             "format": "json",
             "options": {
                 "temperature": temperature,
-                "num_predict": 1024,
+                "num_predict": settings.ollama_num_predict,
                 "top_p": 0.9,
-                "num_ctx": 4096,
+                "num_ctx": settings.ollama_num_ctx,
             },
         }
 
         try:
-            response = await self._client.post("/api/generate", json=payload)
-            response.raise_for_status()
+            response = await self._request_with_retry(payload)
             data = response.json()
 
             duration_ms = int((time.time() - start_time) * 1000)
@@ -127,6 +128,18 @@ class OllamaClient:
             return response.status_code == 200
         except Exception:
             return False
+
+    @retry(
+        stop=stop_after_attempt(settings.ollama_max_retries),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type((httpx.ConnectError, httpx.TimeoutException)),
+        reraise=True,
+    )
+    async def _request_with_retry(self, payload: dict) -> httpx.Response:
+        """POST to Ollama with retry on transient connection/timeout errors."""
+        response = await self._client.post("/api/generate", json=payload)
+        response.raise_for_status()
+        return response
 
     async def ensure_model_available(self) -> bool:
         try:

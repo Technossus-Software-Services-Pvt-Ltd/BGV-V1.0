@@ -4,6 +4,7 @@ import { getReviewQueue, notifyReviewCandidates, getNotificationHistory, retryNo
 import { ReviewQueueItem, NotificationLogItem, ReviewQueueResponse } from '../types';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ErrorMessage from '../components/ErrorMessage';
+import SafeHtml from '../components/SafeHtml';
 
 const PAGE_SIZE = 20;
 
@@ -88,7 +89,7 @@ export default function ReviewQueuePage() {
       const result = await notifyReviewCandidates(Array.from(selectedIds));
       setToast(`${result.queued} email(s) queued${result.skipped > 0 ? `, ${result.skipped} skipped (no email)` : ''}`);
       setSelectedIds(new Set());
-      setTimeout(() => loadData(), 2000); // Refresh after short delay
+      await loadData();
     } catch (err) {
       setToast('Failed to send notifications');
     }
@@ -98,7 +99,7 @@ export default function ReviewQueuePage() {
     try {
       const result = await notifyReviewCandidates([id]);
       setToast(result.message);
-      setTimeout(() => loadData(), 2000);
+      await loadData();
     } catch {
       setToast('Failed to send notification');
     }
@@ -429,9 +430,9 @@ export default function ReviewQueuePage() {
                       <span className="text-xs text-gray-500">To: {notif.recipient_email}</span>
                     </div>
                     <div className="text-sm font-medium text-gray-800">{notif.subject}</div>
-                    <div
+                    <SafeHtml
+                      content={notif.body_html}
                       className="text-sm text-gray-600 bg-gray-50 rounded-md p-3 prose prose-sm max-w-none"
-                      dangerouslySetInnerHTML={{ __html: notif.body_html }}
                     />
                     {notif.error_message && (
                       <p className="text-xs text-rose-600 bg-rose-50 rounded px-2 py-1">{notif.error_message}</p>

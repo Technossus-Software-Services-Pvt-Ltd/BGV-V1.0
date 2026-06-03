@@ -1,11 +1,15 @@
 import base64
 import json
+import re
 from dataclasses import dataclass
 from typing import List, Optional
 
 from app.core.logging import get_logger
 
 logger = get_logger("integrations.gmail")
+
+# Pattern for validating email addresses before interpolation into Gmail query
+_EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
 
 
 @dataclass
@@ -63,6 +67,10 @@ class GmailScanner:
         seen_message_ids: set = set()
 
         if candidate_email:
+            # Validate email format to prevent query injection
+            if not _EMAIL_RE.match(candidate_email):
+                logger.warning("gmail_search_invalid_email", email=candidate_email)
+                return attachments
             query = f"from:{candidate_email} has:attachment"
             try:
                 result = (

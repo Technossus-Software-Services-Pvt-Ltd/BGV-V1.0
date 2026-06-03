@@ -45,6 +45,34 @@ class Settings(BaseSettings):
     ocr_timeout_seconds: int = 120
     ai_timeout_seconds: int = 120
 
+    # Upload limits
+    max_files_per_upload: int = 20
+
+    # Task management concurrency
+    max_document_concurrency: int = 4
+    max_batch_concurrency: int = 2
+    max_notification_concurrency: int = 4
+    shutdown_timeout_seconds: int = 30
+
+    # Ollama AI parameters
+    ollama_connect_timeout: float = 10.0
+    ollama_max_retries: int = 3
+    ollama_num_predict: int = 1024
+    ollama_num_ctx: int = 4096
+
+    # Notifications
+    email_max_retries: int = 3
+    stuck_notification_max_age_minutes: int = 30
+
+    # Google API I/O
+    google_io_pool_size: int = 4
+
+    # WebSocket
+    ws_ticket_ttl_seconds: int = 30
+
+    # Dashboard
+    dashboard_cache_ttl_seconds: int = 30
+
     @model_validator(mode="after")
     def _validate_required_settings(self) -> "Settings":
         """Ensure critical settings are configured. In development, use safe defaults."""

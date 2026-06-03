@@ -85,8 +85,10 @@ export class BatchWebSocketService {
           if (msg.event) {
             this._emit(msg.event, msg.data || {});
           }
-        } catch {
-          // Ignore malformed messages
+        } catch (err) {
+          if (import.meta.env.DEV) {
+            console.warn('[WebSocket] Failed to parse message:', err, event.data);
+          }
         }
       };
 

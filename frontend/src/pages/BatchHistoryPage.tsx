@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { listBatchImports } from '../api/endpoints';
 import { BatchImport } from '../types';
@@ -17,7 +17,7 @@ export default function BatchHistoryPage() {
   const [dateTo, setDateTo] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -32,11 +32,11 @@ export default function BatchHistoryPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [statusFilter, dateFrom, dateTo]);
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [loadData]);
 
   const handleSearch = () => {
     loadData();

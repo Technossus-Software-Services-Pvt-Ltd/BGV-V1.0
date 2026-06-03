@@ -49,16 +49,17 @@ export default function DocumentsPage() {
   }, [loadData]);
 
   // Auto-poll every 5 seconds if any document is still processing
-  const hasProcessingRef = useRef(false);
-  useEffect(() => {
-    const hasProcessing = documents.some(
+  const hasProcessingDocs = useMemo(
+    () => documents.some(
       (doc) => !['completed', 'failed', 'ocr_failed', 'skipped'].includes(doc.processing_status)
-    );
-    hasProcessingRef.current = hasProcessing;
+    ),
+    [documents]
+  );
 
-    if (hasProcessing && !pollRef.current) {
+  useEffect(() => {
+    if (hasProcessingDocs && !pollRef.current) {
       pollRef.current = setInterval(() => loadDataRef.current?.(false), 5000);
-    } else if (!hasProcessing && pollRef.current) {
+    } else if (!hasProcessingDocs && pollRef.current) {
       clearInterval(pollRef.current);
       pollRef.current = null;
     }
@@ -68,7 +69,7 @@ export default function DocumentsPage() {
         pollRef.current = null;
       }
     };
-  }, [documents.length, documents.map(d => d.processing_status).join(',')]);
+  }, [hasProcessingDocs]);
 
   // Group documents by batch
   const { batchGroups, ungroupedDocs } = useMemo(() => {

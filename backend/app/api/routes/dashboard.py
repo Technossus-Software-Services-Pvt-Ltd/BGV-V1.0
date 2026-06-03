@@ -9,6 +9,7 @@ from sqlalchemy import select, func, case, cast, Date
 
 from app.db.session import get_db
 from app.api.deps import get_current_user
+from app.core.config import settings
 from app.models.auth_user import AuthUser
 from app.models.document import Document
 from app.models.batch_import import BatchImport
@@ -144,6 +145,6 @@ async def get_dashboard_stats(
 
     async with _dashboard_cache_lock:
         _dashboard_cache["data"] = result
-        _dashboard_cache["expires_at"] = time.time() + 30
+        _dashboard_cache["expires_at"] = time.time() + settings.dashboard_cache_ttl_seconds
 
     return result

@@ -53,7 +53,7 @@ async def _get_or_create_config(db: AsyncSession, provider: str) -> IntegrationC
     if not config:
         config = IntegrationConfig(provider=provider, is_enabled=False)
         db.add(config)
-        await db.flush()
+        await db.commit()
     return config
 
 
@@ -454,7 +454,7 @@ async def list_integrations(db: AsyncSession = Depends(get_db), _current_user: A
             db.add(new_config)
             configs.append(new_config)
 
-    await db.flush()
+    await db.commit()
 
     return [
         IntegrationConfigResponse(

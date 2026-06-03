@@ -185,17 +185,17 @@ export function createBatchLogStream(batchId: string): { close: () => void; onMe
         buffer = lines.pop() || '';
 
         let currentEvent = 'message';
-        let currentData = '';
+        let dataLines: string[] = [];
 
         for (const line of lines) {
           if (line.startsWith('event:')) {
             currentEvent = line.slice(6).trim();
           } else if (line.startsWith('data:')) {
-            currentData = line.slice(5).trim();
-          } else if (line === '' && currentData) {
-            messageHandler?.(currentEvent, currentData);
+            dataLines.push(line.slice(5).trim());
+          } else if (line === '' && dataLines.length > 0) {
+            messageHandler?.(currentEvent, dataLines.join('\n'));
             currentEvent = 'message';
-            currentData = '';
+            dataLines = [];
           }
         }
       }

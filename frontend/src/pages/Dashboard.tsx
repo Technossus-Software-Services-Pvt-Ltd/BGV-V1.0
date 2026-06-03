@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { getDashboardStats } from '../api/endpoints';
 import { DashboardStats } from '../types';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -17,7 +17,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -28,11 +28,11 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [loadData]);
 
   if (loading) return <LoadingSpinner message="Loading dashboard..." />;
   if (error) return <ErrorMessage message={error} onRetry={loadData} />;
@@ -72,7 +72,7 @@ export default function Dashboard() {
                 paddingAngle={3}
                 dataKey="count"
                 nameKey="status"
-                label={((props: Record<string, unknown>) => `${props.name}: ${props.value}`) as never}
+                label={({ name, value }: { name?: string; value?: number }) => `${name ?? ''}: ${value ?? ''}`}
               >
                 {stats.document_status.map((_, i) => (
                   <Cell key={i} fill={DOC_STATUS_COLORS[i % DOC_STATUS_COLORS.length]} />
@@ -101,7 +101,7 @@ export default function Dashboard() {
                 paddingAngle={3}
                 dataKey="count"
                 nameKey="status"
-                label={((props: Record<string, unknown>) => `${props.name}: ${props.value}`) as never}
+                label={({ name, value }: { name?: string; value?: number }) => `${name ?? ''}: ${value ?? ''}`}
               >
                 {stats.ownership_verification.map((_, i) => (
                   <Cell key={i} fill={OWNERSHIP_COLORS[i % OWNERSHIP_COLORS.length]} />

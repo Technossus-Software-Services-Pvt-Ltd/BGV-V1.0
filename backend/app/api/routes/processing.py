@@ -5,6 +5,7 @@ from sqlalchemy.orm import selectinload
 from typing import List, Optional
 from datetime import datetime, timedelta
 
+from app.api.utils import parse_date_param
 from app.db.session import get_db
 from app.api.deps import get_current_user
 from app.models.auth_user import AuthUser
@@ -57,9 +58,9 @@ async def list_batches(
     if candidate_id:
         query = query.where(UploadBatch.candidate_id == candidate_id)
     if date_from:
-        query = query.where(UploadBatch.created_at >= datetime.strptime(date_from, "%Y-%m-%d"))
+        query = query.where(UploadBatch.created_at >= parse_date_param(date_from, "date_from"))
     if date_to:
-        query = query.where(UploadBatch.created_at < datetime.strptime(date_to, "%Y-%m-%d") + timedelta(days=1))
+        query = query.where(UploadBatch.created_at < parse_date_param(date_to, "date_to") + timedelta(days=1))
     query = query.offset(skip).limit(limit)
 
     result = await db.execute(query)

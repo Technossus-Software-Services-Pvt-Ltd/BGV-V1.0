@@ -18,26 +18,26 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Prevent multiple simultaneous 401 redirects
-let isRedirecting = false;
+// Prevent multiple simultaneous 401 handling
+let isHandling401 = false;
 
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     const status = error.response?.status;
 
-    // Auto-redirect to login on 401 (session expired/invalid)
-    if (status === 401 && !isRedirecting) {
-      isRedirecting = true;
+    // Dispatch custom event on 401 so AuthProvider can handle logout via React Router
+    if (status === 401 && !isHandling401) {
+      isHandling401 = true;
       clearStoredUser();
-      window.location.href = '/login';
-      // Return a never-resolving promise to prevent downstream error handlers
-      return new Promise(() => {});
+      window.dispatchEvent(new CustomEvent('auth:session-expired'));
+      // Reset flag synchronously — event listeners run synchronously
+      isHandling401 = false;
+      return Promise.reject(new Error('Session expired'));
     }
 
-    // If already redirecting, suppress additional 401 errors
-    if (status === 401 && isRedirecting) {
-      return new Promise(() => {});
+    if (status === 401 && isHandling401) {
+      return Promise.reject(new Error('Session expired'));
     }
 
     const message = error.response?.data?.detail || error.message || 'An unexpected error occurred';

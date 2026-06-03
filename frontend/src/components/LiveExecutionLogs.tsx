@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { BatchLogEntry } from '../types';
 
 interface LiveExecutionLogsProps {
@@ -6,11 +6,19 @@ interface LiveExecutionLogsProps {
   onClear: () => void;
 }
 
-export default function LiveExecutionLogs({ logs }: LiveExecutionLogsProps) {
+export default function LiveExecutionLogs({ logs, onClear }: LiveExecutionLogsProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef(true);
+
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    // Consider "near bottom" if within 50px of the bottom
+    isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 50;
+  }, []);
 
   useEffect(() => {
-    if (scrollRef.current) {
+    if (scrollRef.current && isNearBottomRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [logs]);
@@ -21,9 +29,15 @@ export default function LiveExecutionLogs({ logs }: LiveExecutionLogsProps) {
         <h3 className="text-sm font-semibold text-gray-900">
           Processing Logs
         </h3>
+        {logs.length > 0 && (
+          <button onClick={onClear} className="text-xs text-gray-400 hover:text-gray-600 transition-colors">
+            Clear
+          </button>
+        )}
       </div>
       <div
         ref={scrollRef}
+        onScroll={handleScroll}
         className="flex-1 bg-gray-900 rounded-xl p-4 overflow-y-auto max-h-[440px] font-mono text-xs leading-relaxed"
       >
         {logs.length === 0 ? (
@@ -34,7 +48,7 @@ export default function LiveExecutionLogs({ logs }: LiveExecutionLogsProps) {
           logs.map((log, idx) => (
             <div key={log.id || idx} className="py-0.5">
               <span className="text-gray-400">
-                {new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })} {log.level === 'warning' ? 'AM' : 'AM'}
+                {new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
               </span>
               {' '}
               <span className={`${log.level === 'warning' ? 'text-amber-400' : 'text-sky-300'}`}>

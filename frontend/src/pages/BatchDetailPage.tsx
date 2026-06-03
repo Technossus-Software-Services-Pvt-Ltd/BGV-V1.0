@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { getBatchDetail, listDocuments } from '../api/endpoints';
 import { BatchImport, BatchCandidate, DocumentListItem } from '../types';
@@ -15,7 +15,7 @@ export default function BatchDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [expandedCandidates, setExpandedCandidates] = useState<Set<string>>(new Set());
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     if (!batchId) return;
     setLoading(true);
     setError(null);
@@ -24,22 +24,27 @@ export default function BatchDetailPage() {
       setBatch(detail.batch);
       setCandidates(detail.candidates);
 
-      // Fetch documents in controlled chunks to avoid flooding the backend
+      // Fetch documents in parallel chunks to avoid flooding the backend
       const candidateIds = detail.candidates
         .map((c) => c.candidate_id)
         .filter(Boolean) as string[];
 
       if (candidateIds.length > 0) {
         const CHUNK_SIZE = 5;
-        const allDocs: DocumentListItem[] = [];
+        const chunks: string[][] = [];
 
         for (let i = 0; i < candidateIds.length; i += CHUNK_SIZE) {
-          const chunk = candidateIds.slice(i, i + CHUNK_SIZE);
-          const chunkResults = await Promise.all(
-            chunk.map((cid) => listDocuments({ candidate_id: cid, limit: 100 }))
-          );
-          allDocs.push(...chunkResults.flat());
+          chunks.push(candidateIds.slice(i, i + CHUNK_SIZE));
         }
+
+        const chunkResults = await Promise.all(
+          chunks.map((chunk) =>
+            Promise.all(
+              chunk.map((cid) => listDocuments({ candidate_id: cid, limit: 100 }))
+            )
+          )
+        );
+        const allDocs: DocumentListItem[] = chunkResults.flat(2);
 
         setDocuments(allDocs);
       } else {
@@ -50,11 +55,11 @@ export default function BatchDetailPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [batchId]);
 
   useEffect(() => {
     loadData();
-  }, [batchId]);
+  }, [loadData]);
 
   // Group documents by candidate — only include docs created after the batch started
   const candidateDocMap = useMemo(() => {

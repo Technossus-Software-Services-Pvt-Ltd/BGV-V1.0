@@ -27,8 +27,7 @@ export function setStoredUser(user: AuthUser): void {
 }
 
 export function getSessionToken(): string | null {
-  // Check sessionStorage first, then localStorage for migration
-  return sessionStorage.getItem(AUTH_SESSION_KEY) || localStorage.getItem(AUTH_SESSION_KEY);
+  return sessionStorage.getItem(AUTH_SESSION_KEY);
 }
 
 export function setSessionToken(token: string): void {

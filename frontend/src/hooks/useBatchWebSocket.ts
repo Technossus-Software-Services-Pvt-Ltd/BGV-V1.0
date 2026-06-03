@@ -33,6 +33,22 @@ export function useBatchWebSocket(batchId: string | null): UseBatchWebSocketRetu
   const [summary, setSummary] = useState<ProcessingSummaryData | null>(null);
   const [connected, setConnected] = useState(false);
 
+  // Buffer candidate updates and flush at most every 200ms
+  const candidateBufferRef = useRef<Map<string, Partial<BatchCandidate>>>(new Map());
+  const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flushCandidateUpdates = useCallback(() => {
+    flushTimerRef.current = null;
+    if (candidateBufferRef.current.size === 0) return;
+    const buffered = candidateBufferRef.current;
+    candidateBufferRef.current = new Map();
+    setCandidateUpdates((prev) => {
+      const next = new Map(prev);
+      buffered.forEach((val, key) => next.set(key, val));
+      return next;
+    });
+  }, []);
+
   const MAX_LOGS = 500;
 
   const handleLog = useCallback((data: Record<string, unknown>) => {
@@ -48,8 +64,13 @@ export function useBatchWebSocket(batchId: string | null): UseBatchWebSocketRetu
       status: data.stage as string,
     };
     setLogs((prev) => {
-      const next = [...prev, logEntry];
-      return next.length > MAX_LOGS ? next.slice(-MAX_LOGS) : next;
+      if (prev.length >= MAX_LOGS) {
+        // Drop first 50 entries (amortized) to avoid slicing on every message
+        const trimmed = prev.slice(50);
+        trimmed.push(logEntry);
+        return trimmed;
+      }
+      return [...prev, logEntry];
     });
   }, []);
 
@@ -63,12 +84,11 @@ export function useBatchWebSocket(batchId: string | null): UseBatchWebSocketRetu
       documents_failed: data.documents_failed as number,
       error_message: (data.error_message as string) || null,
     };
-    setCandidateUpdates((prev) => {
-      const next = new Map(prev);
-      next.set(candidateId, update);
-      return next;
-    });
-  }, []);
+    candidateBufferRef.current.set(candidateId, update);
+    if (!flushTimerRef.current) {
+      flushTimerRef.current = setTimeout(flushCandidateUpdates, 200);
+    }
+  }, [flushCandidateUpdates]);
 
   const handleSummary = useCallback((data: Record<string, unknown>) => {
     setSummary({
@@ -114,6 +134,10 @@ export function useBatchWebSocket(batchId: string | null): UseBatchWebSocketRetu
       ws.disconnect();
       wsRef.current = null;
       setConnected(false);
+      if (flushTimerRef.current) {
+        clearTimeout(flushTimerRef.current);
+        flushTimerRef.current = null;
+      }
     };
   }, [batchId, handleLog, handleCandidateStatus, handleSummary]);
 

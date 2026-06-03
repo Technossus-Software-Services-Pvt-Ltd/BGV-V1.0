@@ -3,12 +3,14 @@ import json
 import re
 import uuid
 from datetime import datetime, timedelta, timezone
+from html import escape as html_escape
 from typing import List, Set
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
+from app.core.config import settings
 from app.db.session import AsyncSessionLocal
 from app.models.batch_import_candidate import BatchImportCandidate
 from app.models.integration_config import IntegrationConfig
@@ -76,11 +78,11 @@ class NotificationService:
         mandatory_names: Set[str],
     ) -> tuple[str, str]:
         """Generate subject and HTML body based on candidate status."""
-        name = candidate.source_name
+        name = html_escape(candidate.source_name or "")
 
         if candidate.status == BatchCandidateStatus.AWAITING_REQUIRED_DOCUMENTS.value:
             subject = f"Action Required: Submit Required Documents - {name}"
-            doc_list = "".join(f"<li>{doc}</li>" for doc in sorted(mandatory_names))
+            doc_list = "".join(f"<li>{html_escape(doc)}</li>" for doc in sorted(mandatory_names))
             body_html = f"""
 <p>Dear {name},</p>
 <p>We have not received any of the required documents for your background verification.</p>
@@ -95,7 +97,7 @@ class NotificationService:
             missing = NotificationService._extract_missing_docs(
                 candidate.error_message, mandatory_names
             )
-            doc_list = "".join(f"<li>{doc}</li>" for doc in sorted(missing))
+            doc_list = "".join(f"<li>{html_escape(doc)}</li>" for doc in sorted(missing))
             subject = f"Action Required: Missing Documents - {name}"
             body_html = f"""
 <p>Dear {name},</p>
@@ -107,7 +109,7 @@ class NotificationService:
 """
 
         elif candidate.status == BatchCandidateStatus.NO_DOCUMENTS.value:
-            doc_list = "" .join(f"<li>{doc}</li>" for doc in sorted(mandatory_names))
+            doc_list = "".join(f"<li>{html_escape(doc)}</li>" for doc in sorted(mandatory_names))
             subject = f"Action Required: No Documents Received - {name}"
             body_html = f"""
 <p>Dear {name},</p>
@@ -119,7 +121,7 @@ class NotificationService:
 """
 
         elif candidate.status == BatchCandidateStatus.FAILED.value:
-            error_reason = candidate.error_message or "Processing error"
+            error_reason = html_escape(candidate.error_message or "Processing error")
             subject = f"Action Required: Document Resubmission - {name}"
             body_html = f"""
 <p>Dear {name},</p>
@@ -179,9 +181,9 @@ class NotificationService:
 
                 for log_entry in logs:
                     try:
-                        # Retry up to 3 times with exponential backoff
+                        # Retry up to configured limit with exponential backoff
                         last_err = None
-                        for attempt in range(3):
+                        for attempt in range(settings.email_max_retries):
                             try:
                                 await NotificationService._send_single_email(
                                     config.credentials_json, log_entry
@@ -190,7 +192,7 @@ class NotificationService:
                                 break
                             except Exception as e:
                                 last_err = e
-                                if attempt < 2:
+                                if attempt < settings.email_max_retries - 1:
                                     await asyncio.sleep(2 ** attempt)
 
                         if last_err:
@@ -219,7 +221,7 @@ class NotificationService:
 
     @staticmethod
     async def _send_single_email(credentials_json: str, log_entry: NotificationLog) -> None:
-        """Send a single email via Gmail API."""
+        """Send a single email via Gmail API (runs blocking I/O in thread)."""
         import base64
         from email.mime.text import MIMEText
         from email.mime.multipart import MIMEMultipart
@@ -231,20 +233,24 @@ class NotificationService:
         credentials = Credentials.from_authorized_user_info(creds_data)
         service = build("gmail", "v1", credentials=credentials, cache_discovery=False)
 
-        # Get sender email (authenticated user)
-        profile = service.users().getProfile(userId="me").execute()
-        sender_email = profile.get("emailAddress", "")
+        # Build message
+        def _build_and_send():
+            profile = service.users().getProfile(userId="me").execute()
+            sender_email = profile.get("emailAddress", "")
 
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = log_entry.subject
-        msg["From"] = sender_email
-        msg["To"] = log_entry.recipient_email
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = log_entry.subject
+            msg["From"] = sender_email
+            msg["To"] = log_entry.recipient_email
 
-        html_part = MIMEText(log_entry.body_html, "html")
-        msg.attach(html_part)
+            html_part = MIMEText(log_entry.body_html, "html")
+            msg.attach(html_part)
 
-        raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
-        service.users().messages().send(userId="me", body={"raw": raw}).execute()
+            raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+            service.users().messages().send(userId="me", body={"raw": raw}).execute()
+
+        # Run blocking Gmail API calls in a thread to avoid blocking the event loop
+        await asyncio.to_thread(_build_and_send)
 
     @staticmethod
     async def _mark_failed(db: AsyncSession, log_ids: List[str], reason: str) -> None:
@@ -258,12 +264,14 @@ class NotificationService:
         await db.commit()
 
     @staticmethod
-    async def recover_stuck_notifications(max_age_minutes: int = 30) -> None:
+    async def recover_stuck_notifications(max_age_minutes: int = None) -> None:
         """Recover notifications stuck in 'queued' status beyond max_age_minutes.
 
         Should be called on application startup to handle notifications
         that were queued but never processed (e.g., due to worker crash).
         """
+        if max_age_minutes is None:
+            max_age_minutes = settings.stuck_notification_max_age_minutes
         from app.db.session import AsyncSessionLocal
 
         cutoff = datetime.now(timezone.utc) - timedelta(minutes=max_age_minutes)

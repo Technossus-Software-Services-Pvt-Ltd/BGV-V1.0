@@ -1,5 +1,8 @@
+import base64
+import hashlib
 import uuid
 from datetime import datetime, timezone
+from functools import lru_cache
 from typing import Optional
 
 from cryptography.fernet import Fernet
@@ -10,11 +13,9 @@ from app.db.base import Base
 from app.core.config import settings
 
 
+@lru_cache(maxsize=1)
 def _get_fernet() -> Fernet:
-    """Derive a Fernet key from the application secret_key."""
-    import base64
-    import hashlib
-    # Derive a 32-byte key from secret_key for Fernet (which needs url-safe base64 of 32 bytes)
+    """Derive a Fernet key from the application secret_key (cached)."""
     key_bytes = hashlib.sha256(settings.secret_key.encode()).digest()
     return Fernet(base64.urlsafe_b64encode(key_bytes))
 

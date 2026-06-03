@@ -19,14 +19,7 @@ logger = get_logger("api.review_queue")
 
 router = APIRouter()
 
-
-def _handle_task_exception(task: asyncio.Task) -> None:
-    """Log unhandled exceptions from fire-and-forget background tasks."""
-    if task.cancelled():
-        return
-    exc = task.exception()
-    if exc:
-        logger.error("background_task_failed", error=str(exc), exc_info=exc)
+from app.services.task_manager import task_manager, TaskType
 
 
 REVIEW_STATUSES = [
@@ -183,8 +176,11 @@ async def notify_candidates(
 
     # Fire background task - does NOT block the response
     logger.info("notify_queued", log_ids=log_ids, count=len(log_ids))
-    task = asyncio.create_task(NotificationService.send_notifications_background(log_ids))
-    task.add_done_callback(_handle_task_exception)
+    task_manager.submit(
+        NotificationService.send_notifications_background(log_ids),
+        task_type=TaskType.NOTIFICATION,
+        name=f"notify-batch-{len(log_ids)}",
+    )
 
     return NotifyResponse(
         queued=len(log_ids),
@@ -232,7 +228,10 @@ async def retry_notification(
     log_entry.error_message = None
     await db.commit()
 
-    task = asyncio.create_task(NotificationService.send_notifications_background([log_entry.id]))
-    task.add_done_callback(_handle_task_exception)
+    task_manager.submit(
+        NotificationService.send_notifications_background([log_entry.id]),
+        task_type=TaskType.NOTIFICATION,
+        name=f"notify-retry-{log_entry.id[:8]}",
+    )
 
     return {"message": "Notification retry queued"}

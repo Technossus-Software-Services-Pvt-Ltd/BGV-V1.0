@@ -6,7 +6,7 @@ from typing import List, Optional
 from datetime import datetime, timezone
 
 import aiofiles
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status, BackgroundTasks, Query
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func
@@ -32,6 +32,8 @@ from app.core.logging import get_logger
 
 router = APIRouter(prefix="/batch")
 logger = get_logger("api.batch")
+
+from app.services.task_manager import task_manager, TaskType
 
 ALLOWED_IMPORT_EXTENSIONS = {".csv", ".xlsx", ".xls"}
 
@@ -95,7 +97,7 @@ async def upload_batch_file(
         batch.status = BatchImportStatus.PARSING.value
         await db.flush()
 
-        parsed_candidates, parse_errors = parse_import_file(str(file_path), file.filename)
+        parsed_candidates, parse_errors = await asyncio.to_thread(parse_import_file, str(file_path), file.filename)
 
         if parse_errors:
             logger.warning("batch_parse_warnings", batch_code=batch_code, errors=parse_errors[:10])
@@ -146,7 +148,6 @@ async def upload_batch_file(
 @router.post("/{batch_id}/start", response_model=BatchImportResponse)
 async def start_batch_processing(
     batch_id: str,
-    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     _current_user: AuthUser = Depends(get_current_user),
 ):
@@ -166,7 +167,12 @@ async def start_batch_processing(
     batch.status = BatchImportStatus.PROCESSING.value
     await db.commit()
 
-    background_tasks.add_task(_process_batch_background, batch_id)
+    # Submit to centralized task manager with concurrency control
+    task_manager.submit(
+        _process_batch_background(batch_id),
+        task_type=TaskType.BATCH_PROCESSING,
+        name=f"batch-{batch_id[:8]}",
+    )
 
     return BatchImportResponse.model_validate(batch)
 
@@ -255,7 +261,6 @@ async def list_batch_candidates(
 async def retry_batch_candidate(
     batch_id: str,
     candidate_id: str,
-    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     _current_user: AuthUser = Depends(get_current_user),
 ):
@@ -273,7 +278,11 @@ async def retry_batch_candidate(
     if bc.status not in (BatchCandidateStatus.FAILED.value, BatchCandidateStatus.NO_DOCUMENTS.value):
         raise HTTPException(status_code=400, detail=f"Candidate is in '{bc.status}' state. Only 'failed' or 'no_documents' can be retried.")
 
-    background_tasks.add_task(_retry_candidate_background, batch_id, candidate_id)
+    task_manager.submit(
+        _retry_candidate_background(batch_id, candidate_id),
+        task_type=TaskType.BATCH_PROCESSING,
+        name=f"retry-{candidate_id[:8]}",
+    )
     return BatchCandidateResponse.model_validate(bc)
 
 
@@ -417,11 +426,12 @@ async def _log_stream_generator(batch_id: str, after_id: Optional[str]):
 async def _process_batch_background(batch_import_id: str):
     """Background task for batch processing."""
     from app.db.session import AsyncSessionLocal
+    from app.services.dependencies import get_batch_orchestrator
 
     async with AsyncSessionLocal() as db:
         try:
             logger.info("batch_processing_start", batch_id=batch_import_id)
-            orchestrator = BatchOrchestrator(db)
+            orchestrator = get_batch_orchestrator(db)
             await orchestrator.process_batch(batch_import_id)
             logger.info("batch_processing_complete", batch_id=batch_import_id)
         except Exception as e:
@@ -432,10 +442,11 @@ async def _process_batch_background(batch_import_id: str):
 async def _retry_candidate_background(batch_import_id: str, batch_candidate_id: str):
     """Background task for retrying a single candidate."""
     from app.db.session import AsyncSessionLocal
+    from app.services.dependencies import get_batch_orchestrator
 
     async with AsyncSessionLocal() as db:
         try:
-            orchestrator = BatchOrchestrator(db)
+            orchestrator = get_batch_orchestrator(db)
             await orchestrator.retry_candidate(batch_import_id, batch_candidate_id)
         except Exception as e:
             await db.rollback()

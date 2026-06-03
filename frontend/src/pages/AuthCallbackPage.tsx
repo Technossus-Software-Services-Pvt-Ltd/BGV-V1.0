@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { completeGoogleLogin } from '../api/endpoints';
 import { isAuthenticated } from '../utils/auth';
@@ -8,54 +8,49 @@ export default function AuthCallbackPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { login } = useAuth();
+  const loginRef = useRef(login);
+  loginRef.current = login;
+  const hasRun = useRef(false);
 
   useEffect(() => {
-    const runCallback = async () => {
-      const redirectToLoginWithError = (message: string) => {
-        navigate(`/login?error=${encodeURIComponent(message)}`, { replace: true });
-      };
+    if (hasRun.current) return;
+    hasRun.current = true;
 
-      const code = searchParams.get('code');
-      const state = searchParams.get('state');
-      const providerError = searchParams.get('error');
+    const code = searchParams.get('code');
+    const state = searchParams.get('state');
+    const providerError = searchParams.get('error');
 
-      if (providerError) {
-        redirectToLoginWithError(`Google login failed: ${providerError}`);
-        return;
-      }
+    if (providerError) {
+      navigate(`/login?error=${encodeURIComponent(`Google login failed: ${providerError}`)}`, { replace: true });
+      return;
+    }
 
-      if (!code || !state) {
-        redirectToLoginWithError('Missing OAuth callback parameters. Please sign in again.');
-        return;
-      }
+    if (!code || !state) {
+      navigate(`/login?error=${encodeURIComponent('Missing OAuth callback parameters. Please sign in again.')}`, { replace: true });
+      return;
+    }
 
-      const callbackLockKey = `bgv_auth_callback_${state}`;
-      const callbackStatus = sessionStorage.getItem(callbackLockKey);
+    const callbackLockKey = `bgv_auth_callback_${state}`;
 
-      if (callbackStatus === 'done' && isAuthenticated()) {
-        navigate('/', { replace: true });
-        return;
-      }
+    if (sessionStorage.getItem(callbackLockKey) === 'done' && isAuthenticated()) {
+      navigate('/', { replace: true });
+      return;
+    }
 
-      if (callbackStatus === 'pending') {
-        return;
-      }
+    sessionStorage.setItem(callbackLockKey, 'pending');
 
-      sessionStorage.setItem(callbackLockKey, 'pending');
-
-      try {
-        const response = await completeGoogleLogin(code, state);
-        login(response.user, response.session_token);
+    completeGoogleLogin(code, state)
+      .then((response) => {
+        loginRef.current(response.user, response.session_token);
         sessionStorage.setItem(callbackLockKey, 'done');
         navigate('/', { replace: true });
-      } catch (err) {
+      })
+      .catch((err) => {
         sessionStorage.removeItem(callbackLockKey);
-        redirectToLoginWithError(err instanceof Error ? err.message : 'Failed to complete sign in');
-      }
-    };
-
-    runCallback();
-  }, [navigate, searchParams, login]);
+        navigate(`/login?error=${encodeURIComponent(err instanceof Error ? err.message : 'Failed to complete sign in')}`, { replace: true });
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center px-4">

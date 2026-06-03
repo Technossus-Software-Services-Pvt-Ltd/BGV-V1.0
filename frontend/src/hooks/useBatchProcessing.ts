@@ -28,7 +28,7 @@ export function useBatchProcessing() {
     if (wsLogs.length > 0) {
       setBatchLogs(wsLogs);
     }
-  }, [wsLogs.length]);
+  }, [wsLogs]);
 
   // Apply candidate status updates from WebSocket
   useEffect(() => {
@@ -42,7 +42,7 @@ export function useBatchProcessing() {
         return c;
       })
     );
-  }, [candidateUpdates.size]);
+  }, [candidateUpdates]);
 
   // Apply processing summary from WebSocket
   useEffect(() => {
@@ -62,14 +62,15 @@ export function useBatchProcessing() {
     if (DONE.includes(summary.batch_status)) {
       setProcessing(false);
     }
-  }, [summary]);
+  }, [summary, activeBatch]);
 
   const loadHistory = async () => {
     try {
       const history = await listBatchImports({ limit: 50 });
       setBatchHistory(history);
-    } catch {
-      // ignore
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to load batch history';
+      setError(msg);
     }
   };
 

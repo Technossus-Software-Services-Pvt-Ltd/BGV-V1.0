@@ -62,14 +62,15 @@ def validate_upload_file(file: UploadFile) -> None:
         )
 
 
-def validate_file_content(file_bytes: bytes, filename: str) -> str:
-    if len(file_bytes) == 0:
+def validate_file_content(file_bytes: bytes, filename: str, file_size: int = None) -> str:
+    actual_size = file_size if file_size is not None else len(file_bytes)
+    if actual_size == 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Empty file uploaded",
         )
 
-    if len(file_bytes) > settings.max_upload_size_bytes:
+    if actual_size > settings.max_upload_size_bytes:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=f"File size exceeds {settings.max_upload_size_mb}MB limit",

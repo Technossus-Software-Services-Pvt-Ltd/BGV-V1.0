@@ -16,6 +16,7 @@ from app.models.required_document_rule import RequiredDocumentRule
 from app.models.file_naming_rule import FileNamingRule
 from app.models.notification_log import NotificationLog
 from app.models.oauth_state import OAuthState
+from app.models.ws_ticket import WebSocketTicket
 
 __all__ = [
     "Candidate",
@@ -37,4 +38,5 @@ __all__ = [
     "FileNamingRule",
     "NotificationLog",
     "OAuthState",
+    "WebSocketTicket",
 ]

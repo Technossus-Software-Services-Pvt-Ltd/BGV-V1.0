@@ -1,9 +1,10 @@
+import { ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 
 export type NavItem = {
   name: string;
   path: string;
-  icon: JSX.Element;
+  icon: ReactNode;
 };
 
 export const navigation: NavItem[] = [

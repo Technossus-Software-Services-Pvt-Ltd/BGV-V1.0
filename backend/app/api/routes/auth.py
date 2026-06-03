@@ -116,7 +116,7 @@ async def google_auth_start(
         expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
     )
     db.add(oauth_state)
-    await db.flush()
+    await db.commit()
 
     params = {
         "client_id": settings.google_client_id,
@@ -159,7 +159,7 @@ async def google_auth_callback(payload: GoogleAuthCallbackRequest, db: AsyncSess
     # Check expiry
     if oauth_state.expires_at < datetime.now(timezone.utc):
         await db.delete(oauth_state)
-        await db.flush()
+        await db.commit()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="OAuth state expired. Please sign in again.",
@@ -257,7 +257,7 @@ async def google_auth_callback(payload: GoogleAuthCallbackRequest, db: AsyncSess
         expires_at=expires_at,
     )
     db.add(session)
-    await db.flush()
+    await db.commit()
 
     return GoogleAuthCallbackResponse(
         success=True,

@@ -48,7 +48,7 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     app.dependency_overrides[get_db] = override_get_db
 
     # Mock validate_file_content to bypass python-magic (libmagic) dependency in tests
-    def mock_validate_file_content(file_bytes: bytes, filename: str) -> str:
+    def mock_validate_file_content(file_bytes: bytes, filename: str, file_size: int = None) -> str:
         if filename.endswith(".pdf"):
             return "application/pdf"
         elif filename.endswith((".jpg", ".jpeg")):
@@ -128,3 +128,106 @@ def upload_dir(tmp_path: Path, monkeypatch) -> Path:
     upload_path.mkdir()
     monkeypatch.setattr(settings, "upload_dir", str(upload_path))
     return upload_path
+
+
+# ─── Auth fixtures ───────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def mock_auth_user():
+    """A fake AuthUser suitable for dependency override."""
+    from app.models.auth_user import AuthUser
+
+    user = AuthUser(
+        id="test-user-id-001",
+        email="testuser@example.com",
+        name="Test User",
+        google_id="google-123",
+        auth_provider="google",
+        is_active=True,
+    )
+    return user
+
+
+@pytest_asyncio.fixture(scope="function")
+async def authenticated_client(
+    db_session: AsyncSession, mock_auth_user
+) -> AsyncGenerator[AsyncClient, None]:
+    """HTTP client with auth bypassed — all routes see mock_auth_user."""
+    from app.api.deps import get_current_user
+
+    async def override_get_db():
+        yield db_session
+
+    async def override_auth():
+        return mock_auth_user
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = override_auth
+
+    def mock_validate_file_content(file_bytes: bytes, filename: str, file_size: int = None) -> str:
+        if filename.endswith(".pdf"):
+            return "application/pdf"
+        elif filename.endswith((".jpg", ".jpeg")):
+            return "image/jpeg"
+        elif filename.endswith(".png"):
+            return "image/png"
+        elif filename.endswith(".webp"):
+            return "image/webp"
+        return "application/pdf"
+
+    with patch("app.api.routes.upload.validate_file_content", side_effect=mock_validate_file_content):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            yield ac
+
+    app.dependency_overrides.clear()
+
+
+# ─── Data factory fixtures ───────────────────────────────────────────────────
+
+
+@pytest_asyncio.fixture
+async def candidate_factory(db_session: AsyncSession):
+    """Factory to create Candidate records in the test DB."""
+    from app.models.candidate import Candidate
+
+    created = []
+
+    async def _create(candidate_id: str = "CAND-FACTORY-1", name: str = "Factory User", **kwargs):
+        c = Candidate(candidate_id=candidate_id, name=name, **kwargs)
+        db_session.add(c)
+        await db_session.commit()
+        await db_session.refresh(c)
+        created.append(c)
+        return c
+
+    return _create
+
+
+@pytest_asyncio.fixture
+async def document_factory(db_session: AsyncSession):
+    """Factory to create Document records in the test DB."""
+    from app.models.document import Document
+    from app.models.enums import ProcessingStatus
+    import uuid
+
+    async def _create(candidate_id: str, **kwargs):
+        defaults = {
+            "id": str(uuid.uuid4()),
+            "candidate_id": candidate_id,
+            "filename": "test_doc.pdf",
+            "original_filename": "test_doc.pdf",
+            "file_path": "/tmp/test_doc.pdf",
+            "file_size": 1024,
+            "mime_type": "application/pdf",
+            "status": ProcessingStatus.UPLOADED.value,
+        }
+        defaults.update(kwargs)
+        doc = Document(**defaults)
+        db_session.add(doc)
+        await db_session.commit()
+        await db_session.refresh(doc)
+        return doc
+
+    return _create

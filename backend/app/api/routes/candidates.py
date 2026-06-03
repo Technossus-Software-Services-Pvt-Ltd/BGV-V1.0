@@ -35,7 +35,7 @@ async def create_candidate(
         phone=payload.phone,
     )
     db.add(candidate)
-    await db.flush()
+    await db.commit()
     await db.refresh(candidate)
     return candidate
 
