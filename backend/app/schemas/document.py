@@ -87,6 +87,22 @@ class ValidationResultResponse(BaseModel):
     ownership_confirmed: bool
     validation_reasoning: Optional[str]
     processing_duration_ms: Optional[float]
+    # OpenAI fallback fields
+    openai_fallback_used: Optional[bool] = None
+    openai_confidence: Optional[float] = None
+    openai_reasoning: Optional[str] = None
+    openai_model_used: Optional[str] = None
+    openai_prompt_tokens: Optional[int] = None
+    openai_completion_tokens: Optional[int] = None
+    openai_total_tokens: Optional[int] = None
+    openai_cost_usd: Optional[float] = None
+    openai_duration_ms: Optional[int] = None
+    openai_key_evidence_json: Optional[str] = None
+    openai_concerns_json: Optional[str] = None
+    openai_extracted_owner_name: Optional[str] = None
+    openai_extracted_owner_dob: Optional[str] = None
+    openai_name_match_score: Optional[float] = None
+    openai_error: Optional[str] = None
     created_at: datetime
 
     class Config:

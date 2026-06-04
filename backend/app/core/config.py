@@ -39,6 +39,18 @@ class Settings(BaseSettings):
     ocr_timeout_seconds: int = 120
     ai_timeout_seconds: int = 60
 
+    # OpenAI Configuration
+    openai_api_key: str = ""
+    openai_model: str = "gpt-4o-mini"
+    openai_enabled: bool = False
+    openai_max_retries: int = 2
+    openai_timeout_seconds: int = 30
+
+    # OpenAI Fallback Thresholds
+    openai_fallback_min_ocr_confidence: float = 0.3
+    openai_fallback_min_classification_confidence: float = 0.5
+    openai_fallback_max_ownership_score: float = 80.0
+
 
     @property
     def cors_origins_list(self) -> List[str]:

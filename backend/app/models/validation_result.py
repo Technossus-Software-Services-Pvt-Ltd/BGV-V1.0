@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, DateTime, Float, Text, ForeignKey, Boolean
+from sqlalchemy import Column, String, Integer, DateTime, Float, Text, ForeignKey, Boolean
 from sqlalchemy.orm import relationship
 from app.db.base import Base
 
@@ -41,6 +41,23 @@ class ValidationResult(Base):
     correlation_id = Column(String(36), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+
+    # OpenAI fallback fields (all nullable for backward compatibility)
+    openai_fallback_used = Column(Boolean, nullable=True)
+    openai_confidence = Column(Float, nullable=True)
+    openai_reasoning = Column(Text, nullable=True)
+    openai_model_used = Column(String(100), nullable=True)
+    openai_prompt_tokens = Column(Integer, nullable=True)
+    openai_completion_tokens = Column(Integer, nullable=True)
+    openai_total_tokens = Column(Integer, nullable=True)
+    openai_cost_usd = Column(Float, nullable=True)
+    openai_duration_ms = Column(Integer, nullable=True)
+    openai_key_evidence_json = Column(Text, nullable=True)
+    openai_concerns_json = Column(Text, nullable=True)
+    openai_extracted_owner_name = Column(String(255), nullable=True)
+    openai_extracted_owner_dob = Column(String(50), nullable=True)
+    openai_name_match_score = Column(Float, nullable=True)
+    openai_error = Column(Text, nullable=True)
 
     # Relationships
     document = relationship("Document", back_populates="validation_results")

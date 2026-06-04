@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getDocumentDetail, getProcessingTimeline } from '../api/endpoints';
+import { getDocumentDetail, getProcessingTimeline, checkHealth } from '../api/endpoints';
 import { DocumentDetail, ProcessingTimeline } from '../types';
 import StatusBadge from '../components/StatusBadge';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -25,6 +25,7 @@ export default function DocumentDetailPage() {
   const [timeline, setTimeline] = useState<ProcessingTimeline | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [openaiEnabled, setOpenaiEnabled] = useState(false);
   const [activeTab, setActiveTab] = useState<'ocr' | 'classification' | 'validation' | 'timeline'>('ocr');
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -33,15 +34,17 @@ export default function DocumentDetailPage() {
     if (showLoading) setLoading(true);
     setError(null);
     try {
-      const [docDetail, timelineData] = await Promise.allSettled([
+      const [docDetail, timelineData, healthData] = await Promise.allSettled([
         getDocumentDetail(documentId),
         getProcessingTimeline(documentId),
+        checkHealth(),
       ]);
 
       if (docDetail.status === 'fulfilled') setDetail(docDetail.value);
       else throw new Error('Failed to load document');
 
       if (timelineData.status === 'fulfilled') setTimeline(timelineData.value);
+      if (healthData.status === 'fulfilled') setOpenaiEnabled(healthData.value.features?.openai_enabled ?? false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load document detail');
     } finally {
@@ -152,7 +155,7 @@ export default function DocumentDetailPage() {
       <div className="min-h-[200px]">
         {activeTab === 'ocr' && <OCRResultViewer results={detail.ocr_results} />}
         {activeTab === 'classification' && <ClassificationViewer classifications={detail.classifications} />}
-        {activeTab === 'validation' && <ValidationResultViewer results={detail.validation_results} />}
+        {activeTab === 'validation' && <ValidationResultViewer results={detail.validation_results} openaiEnabled={openaiEnabled} />}
         {activeTab === 'timeline' && timeline && (
           <ProcessingTimelineView
             events={timeline.events}

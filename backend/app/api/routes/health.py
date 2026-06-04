@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 from app.services.ai.ollama_client import OllamaClient
+from app.core.config import settings
 
 router = APIRouter()
 
@@ -16,5 +17,8 @@ async def health_check():
             "api": True,
             "ollama": ollama_healthy,
             "ollama_model": model_available,
+        },
+        "features": {
+            "openai_enabled": settings.openai_enabled,
         },
     }
