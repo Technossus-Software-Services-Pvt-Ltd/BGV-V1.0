@@ -73,6 +73,12 @@ class Settings(BaseSettings):
     # Dashboard
     dashboard_cache_ttl_seconds: int = 30
 
+    # Session cookie
+    session_cookie_name: str = "bgv_session"
+    session_cookie_secure: bool = False  # Set True in production (HTTPS only)
+    session_cookie_samesite: str = "lax"  # "strict" for highest security; "lax" allows OAuth redirects
+    session_cookie_domain: str = ""  # Empty = current domain only
+
     @model_validator(mode="after")
     def _validate_required_settings(self) -> "Settings":
         """Ensure critical settings are configured. In development, use safe defaults."""

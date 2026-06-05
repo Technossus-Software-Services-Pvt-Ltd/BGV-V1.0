@@ -22,7 +22,7 @@ from app.services.ocr.confidence import OCRConfidenceEvaluator
 from app.services.ai.classifier import AIClassifier
 from app.services.validation.ownership import OwnershipValidator
 from app.services.processing.normalizer import DocumentNormalizer
-from app.services.processing.splitter import DocumentSplitter, PageClassification
+from app.services.processing.splitter import DocumentSplitter
 from app.services.audit.logger import AuditService
 
 from app.services.processing.stages.context import PipelineContext
@@ -46,15 +46,6 @@ class ProcessingPipeline:
     The public API (process_document) remains unchanged.
     """
 
-    # Class-level singletons for heavy/stateless services (used as defaults)
-    _ocr_engine = PaddleOCREngine()
-    _preprocessor = DocumentPreprocessor()
-    _confidence_evaluator = OCRConfidenceEvaluator()
-    _ai_classifier = AIClassifier()
-    _ownership_validator = OwnershipValidator()
-    _normalizer = DocumentNormalizer()
-    _splitter = DocumentSplitter()
-
     def __init__(
         self,
         db: AsyncSession,
@@ -68,14 +59,24 @@ class ProcessingPipeline:
         splitter: Optional[DocumentSplitter] = None,
         audit_service: Optional[AuditService] = None,
     ):
+        from app.services.dependencies import (
+            get_ocr_engine,
+            get_preprocessor,
+            get_confidence_evaluator,
+            get_ai_classifier,
+            get_ownership_validator,
+            get_normalizer,
+            get_splitter,
+        )
+
         self.db = db
-        self.ocr_engine = ocr_engine or self._ocr_engine
-        self.preprocessor = preprocessor or self._preprocessor
-        self.confidence_evaluator = confidence_evaluator or self._confidence_evaluator
-        self.ai_classifier = ai_classifier or self._ai_classifier
-        self.ownership_validator = ownership_validator or self._ownership_validator
-        self.normalizer = normalizer or self._normalizer
-        self.splitter = splitter or self._splitter
+        self.ocr_engine = ocr_engine or get_ocr_engine()
+        self.preprocessor = preprocessor or get_preprocessor()
+        self.confidence_evaluator = confidence_evaluator or get_confidence_evaluator()
+        self.ai_classifier = ai_classifier or get_ai_classifier()
+        self.ownership_validator = ownership_validator or get_ownership_validator()
+        self.normalizer = normalizer or get_normalizer()
+        self.splitter = splitter or get_splitter()
         self.audit = audit_service or AuditService(db)
 
         # Initialize stages

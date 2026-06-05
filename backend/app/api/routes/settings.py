@@ -2,6 +2,8 @@ import json
 import os
 import secrets
 import asyncio
+import time
+from collections import defaultdict
 from typing import List
 from datetime import datetime, timezone
 
@@ -41,6 +43,23 @@ GOOGLE_SCOPES = [
     "https://www.googleapis.com/auth/gmail.modify",
     "https://www.googleapis.com/auth/drive",
 ]
+
+# Rate limiting for OAuth callback (max 5 attempts per IP per 60 seconds)
+_callback_attempts: dict[str, list[float]] = defaultdict(list)
+_CALLBACK_RATE_LIMIT = 5
+_CALLBACK_RATE_WINDOW = 60  # seconds
+
+
+def _check_callback_rate_limit(client_ip: str) -> bool:
+    """Return True if rate limit exceeded."""
+    now = time.monotonic()
+    attempts = _callback_attempts[client_ip]
+    # Prune old entries
+    _callback_attempts[client_ip] = [t for t in attempts if now - t < _CALLBACK_RATE_WINDOW]
+    if len(_callback_attempts[client_ip]) >= _CALLBACK_RATE_LIMIT:
+        return True
+    _callback_attempts[client_ip].append(now)
+    return False
 
 
 # ─── Helper ──────────────────────────────────────────────────────────
@@ -121,11 +140,19 @@ async def get_gmail_auth_url(
 
 @router.get("/integrations/gmail/callback", response_class=HTMLResponse)
 async def gmail_oauth_callback(
+    request: Request,
     code: str,
     state: str,
     db: AsyncSession = Depends(get_db),
 ):
     """Handle Google OAuth2 redirect callback. Exchanges code for tokens."""
+    client_ip = request.client.host if request.client else "unknown"
+    if _check_callback_rate_limit(client_ip):
+        return HTMLResponse(
+            "<html><body><h2>Error: Too many requests</h2></body></html>",
+            status_code=429,
+        )
+
     client_id, client_secret = _get_google_client_creds()
     config = await _get_or_create_config(db, IntegrationProvider.GMAIL.value)
 

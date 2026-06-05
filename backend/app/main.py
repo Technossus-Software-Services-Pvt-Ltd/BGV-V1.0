@@ -17,6 +17,9 @@ from app.api.routes import dashboard
 from app.api.routes import review_queue
 from app.api.routes import ws
 
+# Named advisory lock IDs to prevent collisions in PostgreSQL's global lock namespace
+ADVISORY_LOCK_DOCUMENT_RECOVERY = 1000001  # Startup: reset stuck documents
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
@@ -56,7 +59,7 @@ async def _recover_stuck_documents():
 
     async with AsyncSessionLocal() as db:
         # Advisory lock prevents multiple workers from running recovery concurrently
-        await db.execute(text("SELECT pg_advisory_lock(42)"))
+        await db.execute(text(f"SELECT pg_advisory_lock({ADVISORY_LOCK_DOCUMENT_RECOVERY})"))
         try:
             result = await db.execute(
                 update(Document)
@@ -67,8 +70,7 @@ async def _recover_stuck_documents():
                 logger.warning("recovered_stuck_documents", count=result.rowcount)
             await db.commit()
         finally:
-            await db.execute(text("SELECT pg_advisory_unlock(42)"))
-            await db.commit()
+            await db.execute(text(f"SELECT pg_advisory_unlock({ADVISORY_LOCK_DOCUMENT_RECOVERY})"))
 
 
 app = FastAPI(

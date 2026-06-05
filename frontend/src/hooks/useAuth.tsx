@@ -1,10 +1,8 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { AuthUser } from '../types/auth';
 import {
   getStoredUser,
   setStoredUser as storeUser,
-  setSessionToken as storeToken,
   clearStoredUser as clearAuth,
   isAuthenticated as checkAuth,
 } from '../utils/auth';
@@ -12,7 +10,7 @@ import {
 interface AuthContextValue {
   user: AuthUser | null;
   isLoggedIn: boolean;
-  login: (user: AuthUser, token: string) => void;
+  login: (user: AuthUser) => void;
   logout: () => void;
 }
 
@@ -24,14 +22,13 @@ const AuthContext = createContext<AuthContextValue>({
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const navigate = useNavigate();
   const [user, setUser] = useState<AuthUser | null>(() => getStoredUser());
   const [isLoggedIn, setIsLoggedIn] = useState(() => checkAuth());
 
   // Sync auth state on storage events (e.g., logout in another tab)
   useEffect(() => {
     const handleStorage = (event: StorageEvent) => {
-      if (event.key === 'bgv_auth_user' || event.key === 'bgv_auth_session' || event.key === null) {
+      if (event.key === 'bgv_auth_user' || event.key === null) {
         setUser(getStoredUser());
         setIsLoggedIn(checkAuth());
       }
@@ -40,20 +37,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('storage', handleStorage);
   }, []);
 
-  // Listen for session-expired events from API interceptor
-  useEffect(() => {
-    const handleSessionExpired = () => {
-      setUser(null);
-      setIsLoggedIn(false);
-      navigate('/login', { replace: true });
-    };
-    window.addEventListener('auth:session-expired', handleSessionExpired);
-    return () => window.removeEventListener('auth:session-expired', handleSessionExpired);
-  }, [navigate]);
-
-  const login = useCallback((newUser: AuthUser, token: string) => {
+  const login = useCallback((newUser: AuthUser) => {
     storeUser(newUser);
-    storeToken(token);
     setUser(newUser);
     setIsLoggedIn(true);
   }, []);

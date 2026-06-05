@@ -55,10 +55,20 @@ async def upload_batch_file(
             detail=f"Unsupported file format: {ext}. Use .csv or .xlsx",
         )
 
-    # Read and save file
-    file_bytes = await file.read()
-    if len(file_bytes) > 10 * 1024 * 1024:  # 10MB limit for import files
-        raise HTTPException(status_code=400, detail="Import file must be under 10MB")
+    # Stream file and enforce size limit during read
+    max_size = 10 * 1024 * 1024  # 10MB
+    chunk_size = 64 * 1024  # 64KB chunks
+    chunks = []
+    total_size = 0
+    while True:
+        chunk = await file.read(chunk_size)
+        if not chunk:
+            break
+        total_size += len(chunk)
+        if total_size > max_size:
+            raise HTTPException(status_code=400, detail="Import file must be under 10MB")
+        chunks.append(chunk)
+    file_bytes = b"".join(chunks)
 
     correlation_id = str(uuid.uuid4())
 

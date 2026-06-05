@@ -1,15 +1,21 @@
+from functools import lru_cache
+
 from fastapi import APIRouter
-from app.services.ai.ollama_client import OllamaClient
+from app.services.dependencies import get_ai_classifier
 
 router = APIRouter()
 
-_ollama_client = OllamaClient()
+
+@lru_cache(maxsize=1)
+def _get_ollama_client():
+    return get_ai_classifier().client
 
 
 @router.get("/health")
 async def health_check():
-    ollama_healthy = await _ollama_client.check_health()
-    model_available = await _ollama_client.ensure_model_available() if ollama_healthy else False
+    client = _get_ollama_client()
+    ollama_healthy = await client.check_health()
+    model_available = await client.ensure_model_available() if ollama_healthy else False
 
     return {
         "status": "healthy",

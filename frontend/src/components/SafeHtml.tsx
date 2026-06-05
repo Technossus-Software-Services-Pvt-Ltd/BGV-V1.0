@@ -14,11 +14,12 @@ export default function SafeHtml({ content, className }: SafeHtmlProps) {
     ALLOWED_TAGS: [
       'p', 'br', 'strong', 'em', 'b', 'i', 'u', 'a', 'ul', 'ol', 'li',
       'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'span', 'div', 'table', 'thead',
-      'tbody', 'tr', 'th', 'td', 'blockquote', 'pre', 'code', 'hr', 'img',
+      'tbody', 'tr', 'th', 'td', 'blockquote', 'pre', 'code', 'hr',
     ],
-    ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'style', 'src', 'alt', 'width', 'height'],
+    ALLOWED_ATTR: ['href', 'target', 'rel', 'class'],
     ALLOW_DATA_ATTR: false,
     ADD_ATTR: ['target'],
+    FORBID_ATTR: ['style'],
   });
 
   return (

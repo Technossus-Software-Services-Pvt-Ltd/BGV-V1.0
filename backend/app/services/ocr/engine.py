@@ -84,6 +84,52 @@ class PaddleOCREngine:
 
     MIN_CONFIDENCE_THRESHOLD = 0.3
 
+    def _parse_ocr_results(self, results: list, start_time: float) -> OCREngineResult:
+        """Parse raw PaddleOCR results into an OCREngineResult."""
+        if not results or not results[0]:
+            duration_ms = int((time.time() - start_time) * 1000)
+            return OCREngineResult(
+                text="",
+                confidence=0.0,
+                word_count=0,
+                raw_output=[],
+                processing_duration_ms=duration_ms,
+            )
+
+        extracted_lines = []
+        confidences = []
+        raw_data = []
+
+        for line in results[0]:
+            if line and len(line) >= 2:
+                bbox = line[0]
+                text_info = line[1]
+                text = text_info[0]
+                confidence = text_info[1]
+
+                if confidence >= self.MIN_CONFIDENCE_THRESHOLD:
+                    extracted_lines.append(text)
+                    confidences.append(confidence)
+                    raw_data.append({
+                        "bbox": [[float(p[0]), float(p[1])] for p in bbox],
+                        "text": text,
+                        "confidence": float(confidence),
+                    })
+
+        full_text = "\n".join(extracted_lines)
+        avg_confidence = float(np.mean(confidences)) if confidences else 0.0
+        word_count = len(full_text.split()) if full_text else 0
+        duration_ms = int((time.time() - start_time) * 1000)
+
+        return OCREngineResult(
+            text=full_text,
+            confidence=avg_confidence,
+            word_count=word_count,
+            raw_output=raw_data,
+            processing_duration_ms=duration_ms,
+            language_detected="en",
+        )
+
     def process(self, image_array: np.ndarray) -> OCREngineResult:
         start_time = time.time()
         logger.info("ocr_start", image_shape=str(image_array.shape))
@@ -91,53 +137,15 @@ class PaddleOCREngine:
         try:
             ocr = _get_paddle_ocr()
             results = ocr.ocr(image_array, cls=True)
+            result = self._parse_ocr_results(results, start_time)
 
-            if not results or not results[0]:
-                duration_ms = int((time.time() - start_time) * 1000)
-                logger.info("ocr_complete", word_count=0, confidence="0.00", result="empty", duration_ms=duration_ms)
-                return OCREngineResult(
-                    text="",
-                    confidence=0.0,
-                    word_count=0,
-                    raw_output=[],
-                    processing_duration_ms=duration_ms,
-                )
-
-            extracted_lines = []
-            confidences = []
-            raw_data = []
-
-            for line in results[0]:
-                if line and len(line) >= 2:
-                    bbox = line[0]
-                    text_info = line[1]
-                    text = text_info[0]
-                    confidence = text_info[1]
-
-                    if confidence >= self.MIN_CONFIDENCE_THRESHOLD:
-                        extracted_lines.append(text)
-                        confidences.append(confidence)
-                        raw_data.append({
-                            "bbox": [[float(p[0]), float(p[1])] for p in bbox],
-                            "text": text,
-                            "confidence": float(confidence),
-                        })
-
-            full_text = "\n".join(extracted_lines)
-            avg_confidence = float(np.mean(confidences)) if confidences else 0.0
-            word_count = len(full_text.split()) if full_text else 0
-
-            duration_ms = int((time.time() - start_time) * 1000)
-            logger.info("ocr_complete", word_count=word_count, confidence=f"{avg_confidence:.2f}", lines=len(extracted_lines), duration_ms=duration_ms)
-
-            return OCREngineResult(
-                text=full_text,
-                confidence=avg_confidence,
-                word_count=word_count,
-                raw_output=raw_data,
-                processing_duration_ms=duration_ms,
-                language_detected="en",
+            logger.info(
+                "ocr_complete",
+                word_count=result.word_count,
+                confidence=f"{result.confidence:.2f}",
+                duration_ms=result.processing_duration_ms,
             )
+            return result
 
         except Exception as e:
             duration_ms = int((time.time() - start_time) * 1000)
@@ -157,51 +165,7 @@ class PaddleOCREngine:
         try:
             ocr = _get_paddle_ocr()
             results = ocr.ocr(str(image_path), cls=True)
-
-            if not results or not results[0]:
-                duration_ms = int((time.time() - start_time) * 1000)
-                return OCREngineResult(
-                    text="",
-                    confidence=0.0,
-                    word_count=0,
-                    raw_output=[],
-                    processing_duration_ms=duration_ms,
-                )
-
-            extracted_lines = []
-            confidences = []
-            raw_data = []
-
-            for line in results[0]:
-                if line and len(line) >= 2:
-                    bbox = line[0]
-                    text_info = line[1]
-                    text = text_info[0]
-                    confidence = text_info[1]
-
-                    if confidence >= self.MIN_CONFIDENCE_THRESHOLD:
-                        extracted_lines.append(text)
-                        confidences.append(confidence)
-                        raw_data.append({
-                            "bbox": [[float(p[0]), float(p[1])] for p in bbox],
-                            "text": text,
-                            "confidence": float(confidence),
-                        })
-
-            full_text = "\n".join(extracted_lines)
-            avg_confidence = float(np.mean(confidences)) if confidences else 0.0
-            word_count = len(full_text.split()) if full_text else 0
-
-            duration_ms = int((time.time() - start_time) * 1000)
-
-            return OCREngineResult(
-                text=full_text,
-                confidence=avg_confidence,
-                word_count=word_count,
-                raw_output=raw_data,
-                processing_duration_ms=duration_ms,
-                language_detected="en",
-            )
+            return self._parse_ocr_results(results, start_time)
 
         except Exception as e:
             duration_ms = int((time.time() - start_time) * 1000)

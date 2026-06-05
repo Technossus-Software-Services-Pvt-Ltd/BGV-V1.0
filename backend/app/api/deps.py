@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.config import settings
 from app.db.session import get_db
 from app.models.auth_session import AuthSession
 from app.models.auth_user import AuthUser
@@ -16,10 +17,24 @@ async def get_database(db: AsyncSession = Depends(get_db)) -> AsyncSession:
 
 
 def _extract_token(request: Request) -> Optional[str]:
-    """Extract session token from Authorization header or X-Session-Token header."""
+    """Extract session token from httpOnly cookie, Authorization header, or X-Session-Token header.
+
+    Priority:
+      1. httpOnly cookie (most secure — not accessible to JS)
+      2. Authorization: Bearer <token> header (legacy/API clients)
+      3. X-Session-Token header (legacy fallback)
+    """
+    # 1. httpOnly cookie (preferred — immune to XSS)
+    cookie_token = request.cookies.get(settings.session_cookie_name)
+    if cookie_token:
+        return cookie_token
+
+    # 2. Authorization header (legacy / API clients)
     auth_header = request.headers.get("authorization", "")
     if auth_header.lower().startswith("bearer "):
         return auth_header[7:].strip()
+
+    # 3. X-Session-Token header (legacy fallback)
     return request.headers.get("x-session-token")
 
 

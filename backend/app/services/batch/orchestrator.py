@@ -92,6 +92,9 @@ class BatchOrchestrator:
 
             for idx, bc in enumerate(candidates, start=1):
                 await self._process_candidate(batch, bc, gmail_scanner, drive_service, idx, total)
+                # Update batch counters atomically with each candidate commit
+                # so persisted state is always consistent if process crashes mid-batch
+                await self._status.update_batch_totals(batch)
                 await self.db.commit()
 
             # Final status
@@ -279,7 +282,8 @@ class BatchOrchestrator:
             if self._pipeline_factory:
                 pipeline = self._pipeline_factory(self.db)
             else:
-                pipeline = ProcessingPipeline(self.db)
+                from app.services.dependencies import get_processing_pipeline
+                pipeline = get_processing_pipeline(self.db)
             confirmed_doc_ids = []
             uploaded_doc_types = set()
             storage_folder_id = None

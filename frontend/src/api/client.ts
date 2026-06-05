@@ -1,21 +1,13 @@
 import axios from 'axios';
-import { getSessionToken, clearStoredUser } from '../utils/auth';
+import { clearStoredUser } from '../utils/auth';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/api/v1',
   headers: {
     'Content-Type': 'application/json',
   },
-});
-
-api.interceptors.request.use((config) => {
-  const token = getSessionToken();
-  if (token) {
-    config.headers = config.headers || {};
-    config.headers.Authorization = `Bearer ${token}`;
-    config.headers['x-session-token'] = token;
-  }
-  return config;
+  // Send httpOnly session cookie automatically with every request
+  withCredentials: true,
 });
 
 // Prevent multiple simultaneous 401 handling
@@ -31,12 +23,12 @@ api.interceptors.response.use(
       isHandling401 = true;
       clearStoredUser();
       window.dispatchEvent(new CustomEvent('auth:session-expired'));
-      // Reset flag synchronously — event listeners run synchronously
-      isHandling401 = false;
+      // Reset after a macrotask to debounce concurrent 401s
+      setTimeout(() => { isHandling401 = false; }, 100);
       return Promise.reject(new Error('Session expired'));
     }
 
-    if (status === 401 && isHandling401) {
+    if (status === 401) {
       return Promise.reject(new Error('Session expired'));
     }
 

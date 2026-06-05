@@ -27,5 +27,5 @@ class BatchImport(Base):
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
     # Relationships
-    candidates = relationship("BatchImportCandidate", back_populates="batch_import", lazy="selectin")
+    candidates = relationship("BatchImportCandidate", back_populates="batch_import", lazy="noload")
     logs = relationship("BatchLog", back_populates="batch_import", lazy="noload")
