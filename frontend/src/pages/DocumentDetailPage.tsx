@@ -1,7 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { useParams } from 'react-router-dom';
-import { getDocumentDetail, getProcessingTimeline,checkHealth } from '../api/endpoints';
 import { useParams, Link } from 'react-router-dom';
+import { getDocumentDetail, getProcessingTimeline, checkHealth } from '../api/endpoints';
 import { DocumentDetail, ProcessingTimeline } from '../types';
 import StatusBadge from '../components/StatusBadge';
 import LoadingSpinner from '../components/LoadingSpinner';

@@ -3,7 +3,6 @@ import { useBatchProcessing } from '../hooks/useBatchProcessing';
 import BatchUploadSection from '../components/BatchUploadSection';
 import BatchProcessingView from '../components/BatchProcessingView';
 import BatchHistoryTab from '../components/BatchHistoryTab';
-import ManualUploadForm from '../components/ManualUploadForm';
 
 type TabView = 'upload' | 'history';
 
@@ -144,8 +143,6 @@ export default function UploadPage() {
               clearLogs={clearLogs}
             />
           )}
-
-          <ManualUploadForm onError={(msg) => setError(msg)} />
         </div>
       )}
 

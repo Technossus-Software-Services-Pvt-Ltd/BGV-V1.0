@@ -37,6 +37,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('storage', handleStorage);
   }, []);
 
+  // Handle session expiry from API interceptor (same-tab 401)
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      setUser(null);
+      setIsLoggedIn(false);
+    };
+    window.addEventListener('auth:session-expired', handleSessionExpired);
+    return () => window.removeEventListener('auth:session-expired', handleSessionExpired);
+  }, []);
+
   const login = useCallback((newUser: AuthUser) => {
     storeUser(newUser);
     setUser(newUser);
