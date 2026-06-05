@@ -5,6 +5,9 @@ export interface HealthStatus {
     ollama: boolean;
     ollama_model: boolean;
   };
+  features?: {
+    openai_enabled: boolean;
+  };
 }
 
 export interface UploadResponse {
@@ -106,6 +109,22 @@ export interface ValidationResult {
   ownership_confirmed: boolean;
   validation_reasoning: string | null;
   processing_duration_ms: number | null;
+  // OpenAI fallback fields
+  openai_fallback_used: boolean | null;
+  openai_confidence: number | null;
+  openai_reasoning: string | null;
+  openai_model_used: string | null;
+  openai_prompt_tokens: number | null;
+  openai_completion_tokens: number | null;
+  openai_total_tokens: number | null;
+  openai_cost_usd: number | null;
+  openai_duration_ms: number | null;
+  openai_key_evidence_json: string | null;
+  openai_concerns_json: string | null;
+  openai_extracted_owner_name: string | null;
+  openai_extracted_owner_dob: string | null;
+  openai_name_match_score: number | null;
+  openai_error: string | null;
   created_at: string;
 }
 
