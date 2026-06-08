@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   uploadBatchFile,
   startBatchProcessing,
@@ -44,9 +44,23 @@ export function useBatchProcessing() {
     );
   }, [candidateUpdates]);
 
+  // Re-fetch final state from API when batch completes (WebSocket updates may be lost)
+  const activeBatchIdRef = useRef<string | null>(null);
+  activeBatchIdRef.current = activeBatch?.id ?? null;
+
+  const refetchBatchState = useCallback(async (batchId: string) => {
+    try {
+      const detail = await getBatchDetail(batchId);
+      setActiveBatch(detail.batch);
+      setBatchCandidates(detail.candidates);
+    } catch {
+      // Ignore — WebSocket state is still usable
+    }
+  }, []);
+
   // Apply processing summary from WebSocket
   useEffect(() => {
-    if (!summary || !activeBatch) return;
+    if (!summary || !activeBatchIdRef.current) return;
     setActiveBatch((prev) => {
       if (!prev) return prev;
       return {
@@ -61,8 +75,13 @@ export function useBatchProcessing() {
     const DONE = ['completed', 'completed_with_errors', 'failed'];
     if (DONE.includes(summary.batch_status)) {
       setProcessing(false);
+      // Re-fetch from API to get accurate final state
+      const batchId = activeBatchIdRef.current;
+      if (batchId) {
+        refetchBatchState(batchId);
+      }
     }
-  }, [summary, activeBatch]);
+  }, [summary, refetchBatchState]);
 
   const loadHistory = async () => {
     try {

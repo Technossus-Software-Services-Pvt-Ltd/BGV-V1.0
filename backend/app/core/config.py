@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     # Environment
     environment: str = "development"
     debug: bool = False
-    log_level: str = "WARNING"
+    log_level: str = "Info"
 
     # Database — no hardcoded credentials; must be provided via .env or environment
     database_url: str = ""
@@ -83,7 +83,7 @@ class Settings(BaseSettings):
     ollama_connect_timeout: float = 10.0
     ollama_max_retries: int = 3
     ollama_num_predict: int = 1024
-    ollama_num_ctx: int = 4096
+    ollama_num_ctx: int = 8192
 
     # Notifications
     email_max_retries: int = 3
