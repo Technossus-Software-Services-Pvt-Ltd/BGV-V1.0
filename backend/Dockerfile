@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.11.9-slim-bookworm
 
 WORKDIR /app
 
@@ -17,7 +17,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-RUN mkdir -p /app/uploads
+RUN adduser --disabled-password --gecos "" appuser \
+    && mkdir -p /app/uploads \
+    && chown -R appuser:appuser /app/uploads
+
+USER appuser
 
 EXPOSE 8000
 

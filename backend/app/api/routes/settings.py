@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.db.session import get_db
+from app.api.deps import get_current_user
+from app.models.auth_user import AuthUser
 from app.models.integration_config import IntegrationConfig
 from app.models.required_document_rule import RequiredDocumentRule
 from app.models.enums import IntegrationProvider
@@ -31,8 +33,9 @@ from app.core.logging import get_logger
 router = APIRouter(prefix="/settings")
 logger = get_logger("api.settings")
 
-# Allow HTTP for localhost OAuth2 redirects during development
-os.environ.setdefault("OAUTHLIB_INSECURE_TRANSPORT", "1")
+# Allow HTTP for localhost OAuth2 redirects during development only
+if app_settings.environment == "development":
+    os.environ.setdefault("OAUTHLIB_INSECURE_TRANSPORT", "1")
 
 GOOGLE_SCOPES = [
     "https://www.googleapis.com/auth/gmail.modify",
@@ -50,7 +53,7 @@ async def _get_or_create_config(db: AsyncSession, provider: str) -> IntegrationC
     if not config:
         config = IntegrationConfig(provider=provider, is_enabled=False)
         db.add(config)
-        await db.flush()
+        await db.commit()
     return config
 
 
@@ -72,6 +75,7 @@ def _get_google_client_creds() -> tuple[str, str]:
 async def get_gmail_auth_url(
     request: Request,
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     """Generate Google OAuth2 authorization URL with gmail.modify + drive scopes."""
     client_id, client_secret = _get_google_client_creds()
@@ -107,6 +111,7 @@ async def get_gmail_auth_url(
     existing["_oauth_state"] = state
     existing["_redirect_uri"] = redirect_uri
     existing["_code_verifier"] = flow.code_verifier
+    existing["_oauth_user_id"] = str(_current_user.id)
     config.config_json = json.dumps(existing)
     await db.commit()
 
@@ -131,6 +136,14 @@ async def gmail_oauth_callback(
     if not stored_state or not secrets.compare_digest(state, stored_state):
         return HTMLResponse(
             "<html><body><h2>Error: Invalid state parameter</h2></body></html>",
+            status_code=400,
+        )
+
+    # Verify this state was issued by a known authenticated user (prevents state fixation)
+    stored_user_id = client_cfg.get("_oauth_user_id")
+    if not stored_user_id:
+        return HTMLResponse(
+            "<html><body><h2>Error: OAuth state not bound to a user session</h2></body></html>",
             status_code=400,
         )
 
@@ -191,6 +204,7 @@ async def gmail_oauth_callback(
     client_cfg.pop("_oauth_state", None)
     client_cfg.pop("_redirect_uri", None)
     client_cfg.pop("_code_verifier", None)
+    client_cfg.pop("_oauth_user_id", None)
     if connected_email:
         client_cfg["connected_email"] = connected_email
     config.config_json = json.dumps(client_cfg)
@@ -219,7 +233,7 @@ setTimeout(function(){window.close()},2000);
 
 
 @router.post("/integrations/gmail/disconnect")
-async def disconnect_gmail(db: AsyncSession = Depends(get_db)):
+async def disconnect_gmail(db: AsyncSession = Depends(get_db), _current_user: AuthUser = Depends(get_current_user)):
     """Clear stored OAuth tokens (disconnect Gmail & Drive)."""
     gmail = await _get_or_create_config(db, IntegrationProvider.GMAIL.value)
     gmail.credentials_json = None
@@ -244,7 +258,7 @@ async def disconnect_gmail(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/integrations/gmail/status", response_model=GmailStatusResponse)
-async def get_gmail_status(db: AsyncSession = Depends(get_db)):
+async def get_gmail_status(db: AsyncSession = Depends(get_db), _current_user: AuthUser = Depends(get_current_user)):
     """Get current Gmail connection status."""
     config = await _get_or_create_config(db, IntegrationProvider.GMAIL.value)
 
@@ -277,6 +291,7 @@ async def get_gmail_status(db: AsyncSession = Depends(get_db)):
 async def update_drive_config(
     body: DriveConfigRequest,
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     """Update Google Drive folder IDs for search and storage."""
     config = await _get_or_create_config(db, IntegrationProvider.GOOGLE_DRIVE.value)
@@ -290,7 +305,7 @@ async def update_drive_config(
 
 
 @router.get("/integrations/drive/config")
-async def get_drive_config(db: AsyncSession = Depends(get_db)):
+async def get_drive_config(db: AsyncSession = Depends(get_db), _current_user: AuthUser = Depends(get_current_user)):
     """Get current Drive folder configuration."""
     config = await _get_or_create_config(db, IntegrationProvider.GOOGLE_DRIVE.value)
     if config.config_json:
@@ -301,7 +316,7 @@ async def get_drive_config(db: AsyncSession = Depends(get_db)):
 # ─── Required document checklist ─────────────────────────────────────
 
 @router.get("/required-documents", response_model=List[RequiredDocumentRuleResponse])
-async def list_required_documents(db: AsyncSession = Depends(get_db)):
+async def list_required_documents(db: AsyncSession = Depends(get_db), _current_user: AuthUser = Depends(get_current_user)):
     """Get active required document checklist entries ordered for UI display."""
     result = await db.execute(
         select(RequiredDocumentRule)
@@ -330,6 +345,7 @@ async def list_required_documents(db: AsyncSession = Depends(get_db)):
 async def save_required_documents(
     body: RequiredDocumentChecklistRequest,
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     """Replace the required document checklist with the submitted ordered list."""
     existing = await db.execute(select(RequiredDocumentRule))
@@ -377,7 +393,7 @@ async def save_required_documents(
 
 
 @router.get("/file-naming", response_model=FileNamingRuleResponse)
-async def get_file_naming_rule(db: AsyncSession = Depends(get_db)):
+async def get_file_naming_rule(db: AsyncSession = Depends(get_db), _current_user: AuthUser = Depends(get_current_user)):
     """Get active file naming rule configuration for UI display and editing."""
     rule = await FileNamingRuleService.get_active_rule(db)
     return FileNamingRuleResponse(
@@ -395,6 +411,7 @@ async def get_file_naming_rule(db: AsyncSession = Depends(get_db)):
 async def save_file_naming_rule(
     body: FileNamingRuleRequest,
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     """Save active file naming rule configuration."""
     folder_pattern = body.folder_structure_pattern.strip()
@@ -425,7 +442,7 @@ async def save_file_naming_rule(
 # ─── Legacy generic endpoints (kept for compatibility) ───────────────
 
 @router.get("/integrations", response_model=List[IntegrationConfigResponse])
-async def list_integrations(db: AsyncSession = Depends(get_db)):
+async def list_integrations(db: AsyncSession = Depends(get_db), _current_user: AuthUser = Depends(get_current_user)):
     """List all integration configurations."""
     result = await db.execute(select(IntegrationConfig).order_by(IntegrationConfig.provider))
     configs = result.scalars().all()
@@ -437,7 +454,7 @@ async def list_integrations(db: AsyncSession = Depends(get_db)):
             db.add(new_config)
             configs.append(new_config)
 
-    await db.flush()
+    await db.commit()
 
     return [
         IntegrationConfigResponse(
@@ -459,6 +476,7 @@ async def update_integration(
     provider: str,
     request: IntegrationConfigUpdateRequest,
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     """Update an integration's configuration."""
     valid_providers = {p.value for p in IntegrationProvider}
@@ -498,7 +516,7 @@ async def update_integration(
 
 
 @router.post("/integrations/{provider}/validate")
-async def validate_integration(provider: str, db: AsyncSession = Depends(get_db)):
+async def validate_integration(provider: str, db: AsyncSession = Depends(get_db), _current_user: AuthUser = Depends(get_current_user)):
     """Test that an integration's credentials are valid."""
     result = await db.execute(
         select(IntegrationConfig).where(IntegrationConfig.provider == provider)

@@ -40,8 +40,11 @@ COLUMN_ALIASES = {
 }
 
 
-class ParseError(Exception):
-    """Raised when file parsing fails."""
+from app.core.exceptions import BatchParseError
+
+
+class ParseError(BatchParseError):
+    """Raised when file parsing fails. Inherits from BatchParseError (→ HTTP 400)."""
     pass
 
 

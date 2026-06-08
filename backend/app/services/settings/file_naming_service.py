@@ -1,3 +1,7 @@
+import re
+from datetime import datetime, timezone
+from pathlib import Path
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -71,3 +75,66 @@ class FileNamingRuleService:
             filename = filename.replace(token, value)
 
         return f"{folder}/{filename}.pdf"
+
+    @staticmethod
+    def resolve_folder_name(
+        pattern: str,
+        candidate_id: str,
+        candidate_name: str,
+        batch_date: datetime | None = None,
+    ) -> str:
+        """Resolve folder name pattern with actual candidate/batch values."""
+        if not pattern:
+            pattern = DEFAULT_FOLDER_STRUCTURE_PATTERN
+
+        first_name = candidate_name.split()[0] if candidate_name else "Unknown"
+        date_str = (batch_date or datetime.now(timezone.utc)).strftime("%Y%m%d")
+
+        replacements = {
+            "{CandidateID}": candidate_id or "UNKNOWN",
+            "{FirstName}": first_name,
+            "{Date}": date_str,
+            "{DocType}": "",  # Not applicable for folder names
+        }
+
+        resolved = pattern
+        for token, value in replacements.items():
+            resolved = resolved.replace(token, value)
+
+        # Sanitize for filesystem/Drive safety
+        resolved = re.sub(r'[<>:"/\\|?*]', "-", resolved).strip(" .-")
+        return resolved or f"{candidate_id}_{first_name}_{date_str}"
+
+    @staticmethod
+    def resolve_file_name(
+        pattern: str,
+        candidate_id: str,
+        candidate_name: str,
+        document_type: str,
+        original_filename: str,
+    ) -> str:
+        """Resolve file name pattern with actual candidate/document values."""
+        if not pattern:
+            pattern = DEFAULT_FILE_RENAME_PATTERN
+
+        first_name = candidate_name.split()[0] if candidate_name else "Unknown"
+        # Preserve original file extension
+        extension = Path(original_filename).suffix.lower() or ".pdf"
+
+        replacements = {
+            "{CandidateID}": candidate_id or "UNKNOWN",
+            "{FirstName}": first_name,
+            "{DocType}": document_type or "Document",
+            "{Date}": datetime.now(timezone.utc).strftime("%Y%m%d"),
+        }
+
+        resolved = pattern
+        for token, value in replacements.items():
+            resolved = resolved.replace(token, value)
+
+        # Sanitize for filesystem/Drive safety
+        resolved = re.sub(r'[<>:"/\\|?*]', "-", resolved).strip(" .-")
+        if not resolved:
+            resolved = Path(original_filename).stem
+
+        return f"{resolved}{extension}"

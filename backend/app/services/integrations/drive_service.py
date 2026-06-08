@@ -169,7 +169,12 @@ class GoogleDriveService:
         """
         safe_name = candidate_name.replace("/", "-").replace("\\", "-").strip()
         folder_name = f"{batch_code}-{safe_name}"
+        return self.create_storage_folder_with_name(folder_name)
 
+    def create_storage_folder_with_name(self, folder_name: str) -> str:
+        """Create a folder in Drive with the given resolved name.
+        Returns the folder ID.
+        """
         metadata = {
             "name": folder_name,
             "mimeType": "application/vnd.google-apps.folder",

@@ -27,10 +27,14 @@ class DocumentType(str, enum.Enum):
     DRIVING_LICENSE = "driving_license"
     VOTER_ID = "voter_id"
     POLICE_VERIFICATION = "police_verification"
+    MARKSHEET_10TH = "marksheet_10th"
+    MARKSHEET_12TH = "marksheet_12th"
+    CERTIFICATE_DIPLOMA = "certificate_diploma"
+    MARKSHEET_DIPLOMA = "marksheet_diploma"
+    CERTIFICATE_DEGREE = "certificate_degree"
+    MARKSHEET_DEGREE = "marksheet_degree"
     CERTIFICATE_10TH = "certificate_10th"
     CERTIFICATE_12TH = "certificate_12th"
-    CERTIFICATE_DIPLOMA = "certificate_diploma"
-    CERTIFICATE_DEGREE = "certificate_degree"
     PAYSLIP = "payslip"
     EXPERIENCE_LETTER = "experience_letter"
     BANK_STATEMENT = "bank_statement"
@@ -89,6 +93,8 @@ class BatchCandidateStatus(str, enum.Enum):
     DOWNLOADING = "downloading"
     PROCESSING = "processing"
     COMPLETED = "completed"
+    PARTIAL = "partial"
+    AWAITING_REQUIRED_DOCUMENTS = "awaiting_required_documents"
     FAILED = "failed"
     SKIPPED = "skipped"
 
@@ -96,3 +102,9 @@ class BatchCandidateStatus(str, enum.Enum):
 class IntegrationProvider(str, enum.Enum):
     GMAIL = "gmail"
     GOOGLE_DRIVE = "google_drive"
+
+
+class NotificationStatus(str, enum.Enum):
+    QUEUED = "queued"
+    SENT = "sent"
+    FAILED = "failed"

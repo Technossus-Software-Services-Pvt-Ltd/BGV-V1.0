@@ -28,10 +28,10 @@ class Document(Base):
     # Relationships
     candidate = relationship("Candidate", back_populates="documents")
     upload_batch = relationship("UploadBatch", back_populates="documents")
-    pages = relationship("DocumentPage", back_populates="document", lazy="selectin", order_by="DocumentPage.page_number")
-    ocr_results = relationship("OCRResult", back_populates="document", lazy="selectin")
-    classifications = relationship("AIClassification", back_populates="document", lazy="selectin")
-    validation_results = relationship("ValidationResult", back_populates="document", lazy="selectin")
+    pages = relationship("DocumentPage", back_populates="document", lazy="noload", order_by="DocumentPage.page_number")
+    ocr_results = relationship("OCRResult", back_populates="document", lazy="noload")
+    classifications = relationship("AIClassification", back_populates="document", lazy="noload")
+    validation_results = relationship("ValidationResult", back_populates="document", lazy="noload")
 
 
 class DocumentPage(Base):
@@ -52,5 +52,5 @@ class DocumentPage(Base):
 
     # Relationships
     document = relationship("Document", back_populates="pages")
-    ocr_result = relationship("OCRResult", back_populates="page", uselist=False, lazy="selectin")
-    classification = relationship("AIClassification", back_populates="page", uselist=False, lazy="selectin")
+    ocr_result = relationship("OCRResult", back_populates="page", uselist=False, lazy="noload")
+    classification = relationship("AIClassification", back_populates="page", uselist=False, lazy="noload")

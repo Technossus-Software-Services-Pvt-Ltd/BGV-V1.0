@@ -1,10 +1,14 @@
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import List, Optional
 from datetime import date, datetime, timedelta
 
+from app.api.utils import parse_date_param
 from app.db.session import get_db
+from app.api.deps import get_current_user
+from app.models.auth_user import AuthUser
 from app.models.document import Document, DocumentPage
 from app.models.ocr_result import OCRResult
 from app.models.classification import AIClassification
@@ -28,9 +32,10 @@ async def list_documents(
     status_filter: str = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
-    skip: int = 0,
-    limit: int = 50,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     query = select(Document).order_by(Document.created_at.desc())
 
@@ -39,9 +44,9 @@ async def list_documents(
     if status_filter:
         query = query.where(Document.processing_status == status_filter)
     if date_from:
-        query = query.where(Document.created_at >= datetime.strptime(date_from, "%Y-%m-%d"))
+        query = query.where(Document.created_at >= parse_date_param(date_from, "date_from"))
     if date_to:
-        query = query.where(Document.created_at < datetime.strptime(date_to, "%Y-%m-%d") + timedelta(days=1))
+        query = query.where(Document.created_at < parse_date_param(date_to, "date_to") + timedelta(days=1))
 
     query = query.offset(skip).limit(limit)
     result = await db.execute(query)
@@ -77,6 +82,7 @@ async def list_documents(
 async def get_document_detail(
     document_id: str,
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     # Get document
     result = await db.execute(select(Document).where(Document.id == document_id))
@@ -84,37 +90,31 @@ async def get_document_detail(
     if not document:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
 
-    # Get candidate name
-    candidate_name = None
-    if document.candidate_id:
-        cand_result = await db.execute(select(Candidate).where(Candidate.id == document.candidate_id))
-        candidate = cand_result.scalar_one_or_none()
-        if candidate:
-            candidate_name = candidate.name
-
-    # Get pages
-    pages_result = await db.execute(
+    # Parallel queries for related data (independent, no ordering dependency)
+    cand_coro = db.execute(select(Candidate).where(Candidate.id == document.candidate_id)) if document.candidate_id else None
+    pages_coro = db.execute(
         select(DocumentPage).where(DocumentPage.document_id == document_id).order_by(DocumentPage.page_number)
     )
-    pages = pages_result.scalars().all()
+    ocr_coro = db.execute(select(OCRResult).where(OCRResult.document_id == document_id))
+    class_coro = db.execute(select(AIClassification).where(AIClassification.document_id == document_id))
+    val_coro = db.execute(select(ValidationResult).where(ValidationResult.document_id == document_id))
 
-    # Get OCR results
-    ocr_result = await db.execute(
-        select(OCRResult).where(OCRResult.document_id == document_id)
-    )
-    ocr_results = ocr_result.scalars().all()
+    coros = [pages_coro, ocr_coro, class_coro, val_coro]
+    if cand_coro:
+        coros.append(cand_coro)
 
-    # Get classifications
-    class_result = await db.execute(
-        select(AIClassification).where(AIClassification.document_id == document_id)
-    )
-    classifications = class_result.scalars().all()
+    results = await asyncio.gather(*coros)
 
-    # Get validation results
-    val_result = await db.execute(
-        select(ValidationResult).where(ValidationResult.document_id == document_id)
-    )
-    validation_results = val_result.scalars().all()
+    pages = results[0].scalars().all()
+    ocr_results = results[1].scalars().all()
+    classifications = results[2].scalars().all()
+    validation_results = results[3].scalars().all()
+
+    candidate_name = None
+    if cand_coro and len(results) > 4:
+        candidate = results[4].scalar_one_or_none()
+        if candidate:
+            candidate_name = candidate.name
 
     return DocumentDetailResponse(
         document=document,
@@ -130,6 +130,7 @@ async def get_document_detail(
 async def get_document_ocr(
     document_id: str,
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     result = await db.execute(
         select(OCRResult).where(OCRResult.document_id == document_id)
@@ -141,6 +142,7 @@ async def get_document_ocr(
 async def get_document_classification(
     document_id: str,
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     result = await db.execute(
         select(AIClassification).where(AIClassification.document_id == document_id)
@@ -152,6 +154,7 @@ async def get_document_classification(
 async def get_document_validation(
     document_id: str,
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     result = await db.execute(
         select(ValidationResult).where(ValidationResult.document_id == document_id)

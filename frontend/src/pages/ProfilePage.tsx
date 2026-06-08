@@ -1,7 +1,7 @@
-import { getStoredUser } from '../utils/auth';
+import { useAuth } from '../hooks/useAuth';
 
 export default function ProfilePage() {
-  const user = getStoredUser();
+  const { user } = useAuth();
 
   if (!user) {
     return (

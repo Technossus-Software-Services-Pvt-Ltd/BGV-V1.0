@@ -1,5 +1,5 @@
-import { useEffect, useState, useRef } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useEffect, useState, useRef, useCallback } from 'react';
+import { useParams } from 'react-router-dom';
 import { getDocumentDetail, getProcessingTimeline } from '../api/endpoints';
 import { DocumentDetail, ProcessingTimeline } from '../types';
 import StatusBadge from '../components/StatusBadge';
@@ -26,9 +26,9 @@ export default function DocumentDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'ocr' | 'classification' | 'validation' | 'timeline'>('ocr');
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const loadDataRef = useRef<(showLoading?: boolean) => Promise<void>>();
 
-  const loadData = async (showLoading = true) => {
+  const loadData = useCallback(async (showLoading = true) => {
     if (!documentId) return;
     if (showLoading) setLoading(true);
     setError(null);
@@ -47,22 +47,33 @@ export default function DocumentDetailPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [documentId]);
+
+  // Keep ref updated so polling interval always calls latest loadData
+  loadDataRef.current = loadData;
 
   useEffect(() => {
     loadData();
-  }, [documentId]);
+  }, [loadData]);
 
-  // Auto-poll while processing is in progress
+  // Auto-poll while processing is in progress (only when tab is visible)
   useEffect(() => {
-    if (detail && !TERMINAL_STATUSES.includes(detail.document.processing_status)) {
-      pollRef.current = setInterval(() => loadData(false), 5000);
-    } else if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
+    if (!detail || TERMINAL_STATUSES.includes(detail.document.processing_status)) return;
+
+    const poll = () => {
+      if (document.visibilityState === 'visible') {
+        loadDataRef.current?.(false);
+      }
+    };
+    const id = setInterval(poll, 5000);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') poll();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
     return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [detail?.document.processing_status]);
 
@@ -85,14 +96,14 @@ export default function DocumentDetailPage() {
     <div className="space-y-6 animate-fade-in">
       {/* Back + Header */}
       <div className="flex items-start gap-4">
-        <Link
-          to="/documents"
+        <button
+          onClick={() => window.history.length > 1 ? window.history.back() : window.location.assign('/batch-history')}
           className="mt-1 shrink-0 h-9 w-9 rounded-xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-colors"
         >
           <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
           </svg>
-        </Link>
+        </button>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3">
             <h1 className="text-xl font-bold text-gray-900 tracking-tight truncate">{doc.original_filename}</h1>

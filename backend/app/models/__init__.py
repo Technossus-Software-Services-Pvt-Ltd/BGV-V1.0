@@ -14,6 +14,9 @@ from app.models.auth_user import AuthUser
 from app.models.auth_session import AuthSession
 from app.models.required_document_rule import RequiredDocumentRule
 from app.models.file_naming_rule import FileNamingRule
+from app.models.notification_log import NotificationLog
+from app.models.oauth_state import OAuthState
+from app.models.ws_ticket import WebSocketTicket
 
 __all__ = [
     "Candidate",
@@ -33,4 +36,7 @@ __all__ = [
     "AuthSession",
     "RequiredDocumentRule",
     "FileNamingRule",
+    "NotificationLog",
+    "OAuthState",
+    "WebSocketTicket",
 ]

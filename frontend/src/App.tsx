@@ -1,46 +1,67 @@
+import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import Layout from './components/Layout';
-import Dashboard from './pages/Dashboard';
-import UploadPage from './pages/UploadPage';
-import DocumentsPage from './pages/DocumentsPage';
-import DocumentDetailPage from './pages/DocumentDetailPage';
-import CandidatesPage from './pages/CandidatesPage';
-import AuditPage from './pages/AuditPage';
-import SettingsPage from './pages/SettingsPage';
+import ErrorBoundary from './components/ErrorBoundary';
+import LoadingSpinner from './components/LoadingSpinner';
 import LoginPage from './pages/LoginPage';
 import AuthCallbackPage from './pages/AuthCallbackPage';
-import { isAuthenticated } from './utils/auth';
-import ProfilePage from './pages/ProfilePage';
+import { useAuth } from './hooks/useAuth';
+
+// Lazy-loaded pages for code splitting
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const UploadPage = lazy(() => import('./pages/UploadPage'));
+const BatchHistoryPage = lazy(() => import('./pages/BatchHistoryPage'));
+const BatchDetailPage = lazy(() => import('./pages/BatchDetailPage'));
+const DocumentDetailPage = lazy(() => import('./pages/DocumentDetailPage'));
+const CandidatesPage = lazy(() => import('./pages/CandidatesPage'));
+const AuditPage = lazy(() => import('./pages/AuditPage'));
+const ReviewQueuePage = lazy(() => import('./pages/ReviewQueuePage'));
+const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+const ProfilePage = lazy(() => import('./pages/ProfilePage'));
+
+function PageSuspense({ children }: { children: React.ReactNode }) {
+  return <Suspense fallback={<LoadingSpinner message="Loading..." />}>{children}</Suspense>;
+}
 
 function ProtectedLayout() {
-  if (!isAuthenticated()) {
+  const { isLoggedIn } = useAuth();
+  if (!isLoggedIn) {
     return <Navigate to="/login" replace />;
   }
   return <Layout />;
 }
 
+function LoginRoute() {
+  const { isLoggedIn } = useAuth();
+  if (isLoggedIn) {
+    return <Navigate to="/" replace />;
+  }
+  return <LoginPage />;
+}
+
 function App() {
   return (
-    <Routes>
-      <Route
-        path="/login"
-        element={isAuthenticated() ? <Navigate to="/" replace /> : <LoginPage />}
-      />
-      <Route path="/auth/callback" element={<AuthCallbackPage />} />
+    <ErrorBoundary>
+      <Routes>
+        <Route path="/login" element={<LoginRoute />} />
+        <Route path="/auth/callback" element={<AuthCallbackPage />} />
 
-      <Route path="/" element={<ProtectedLayout />}>
-        <Route index element={<Dashboard />} />
-        <Route path="upload" element={<UploadPage />} />
-        <Route path="documents" element={<DocumentsPage />} />
-        <Route path="documents/:documentId" element={<DocumentDetailPage />} />
-        <Route path="candidates" element={<CandidatesPage />} />
-        <Route path="audit" element={<AuditPage />} />
-        <Route path="settings" element={<SettingsPage />} />
-        <Route path="profile" element={<ProfilePage />} />
-      </Route>
+        <Route path="/" element={<ProtectedLayout />}>
+          <Route index element={<PageSuspense><Dashboard /></PageSuspense>} />
+          <Route path="upload" element={<PageSuspense><UploadPage /></PageSuspense>} />
+          <Route path="batch-history" element={<PageSuspense><BatchHistoryPage /></PageSuspense>} />
+          <Route path="batch-history/:batchId" element={<PageSuspense><BatchDetailPage /></PageSuspense>} />
+          <Route path="documents/:documentId" element={<PageSuspense><DocumentDetailPage /></PageSuspense>} />
+          <Route path="candidates" element={<PageSuspense><CandidatesPage /></PageSuspense>} />
+          <Route path="audit" element={<PageSuspense><AuditPage /></PageSuspense>} />
+          <Route path="review-queue" element={<PageSuspense><ReviewQueuePage /></PageSuspense>} />
+          <Route path="settings" element={<PageSuspense><SettingsPage /></PageSuspense>} />
+          <Route path="profile" element={<PageSuspense><ProfilePage /></PageSuspense>} />
+        </Route>
 
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </ErrorBoundary>
   );
 }
 

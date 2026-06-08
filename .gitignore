@@ -6,6 +6,7 @@ __pycache__/
 .venv/
 venv/
 env/
+.venv310/
 
 # Environment
 .env
