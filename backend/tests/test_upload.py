@@ -5,8 +5,8 @@ from pathlib import Path
 
 class TestUploadEndpoint:
     @pytest.mark.asyncio
-    async def test_upload_no_files_returns_400(self, client: AsyncClient):
-        response = await client.post(
+    async def test_upload_no_files_returns_400(self, authenticated_client: AsyncClient):
+        response = await authenticated_client.post(
             "/api/v1/upload",
             data={"candidate_id": "CAND-001", "candidate_name": "Test User"},
         )
@@ -14,9 +14,9 @@ class TestUploadEndpoint:
         assert response.status_code in (400, 422)
 
     @pytest.mark.asyncio
-    async def test_upload_single_pdf(self, client: AsyncClient, sample_pdf_bytes: bytes, upload_dir: Path):
+    async def test_upload_single_pdf(self, authenticated_client: AsyncClient, sample_pdf_bytes: bytes, upload_dir: Path):
         """Test uploading a single PDF file."""
-        response = await client.post(
+        response = await authenticated_client.post(
             "/api/v1/upload",
             data={
                 "candidate_id": "CAND-UP-1",
@@ -33,14 +33,14 @@ class TestUploadEndpoint:
         assert data["documents"][0]["filename"] == "test_document.pdf"
 
     @pytest.mark.asyncio
-    async def test_upload_multiple_files(self, client: AsyncClient, sample_pdf_bytes: bytes, upload_dir: Path):
+    async def test_upload_multiple_files(self, authenticated_client: AsyncClient, sample_pdf_bytes: bytes, upload_dir: Path):
         """Test uploading multiple files in one batch."""
         files = [
             ("files", ("doc1.pdf", sample_pdf_bytes, "application/pdf")),
             ("files", ("doc2.pdf", sample_pdf_bytes, "application/pdf")),
             ("files", ("doc3.pdf", sample_pdf_bytes, "application/pdf")),
         ]
-        response = await client.post(
+        response = await authenticated_client.post(
             "/api/v1/upload",
             data={
                 "candidate_id": "CAND-MULTI",
@@ -55,10 +55,10 @@ class TestUploadEndpoint:
 
     @pytest.mark.asyncio
     async def test_upload_creates_candidate_if_not_exists(
-        self, client: AsyncClient, sample_pdf_bytes: bytes, upload_dir: Path
+        self, authenticated_client: AsyncClient, sample_pdf_bytes: bytes, upload_dir: Path
     ):
         """Uploading for a new candidate should auto-create the candidate record."""
-        response = await client.post(
+        response = await authenticated_client.post(
             "/api/v1/upload",
             data={
                 "candidate_id": "CAND-AUTO",
@@ -70,16 +70,16 @@ class TestUploadEndpoint:
         assert response.status_code == 202
 
         # Verify candidate was created
-        cand_response = await client.get("/api/v1/candidates/CAND-AUTO")
+        cand_response = await authenticated_client.get("/api/v1/candidates/CAND-AUTO")
         assert cand_response.status_code == 200
         assert cand_response.json()["name"] == "Auto Created"
 
     @pytest.mark.asyncio
     async def test_upload_with_candidate_metadata(
-        self, client: AsyncClient, sample_pdf_bytes: bytes, upload_dir: Path
+        self, authenticated_client: AsyncClient, sample_pdf_bytes: bytes, upload_dir: Path
     ):
         """Test that candidate metadata (DOB, PAN, Aadhaar) is stored correctly."""
-        response = await client.post(
+        response = await authenticated_client.post(
             "/api/v1/upload",
             data={
                 "candidate_id": "CAND-META",

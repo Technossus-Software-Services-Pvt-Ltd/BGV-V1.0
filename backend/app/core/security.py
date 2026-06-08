@@ -14,6 +14,30 @@ ALLOWED_MIME_TYPES = {
     "image/webp",
 }
 
+
+def _detect_mime_from_magic_bytes(file_bytes: bytes) -> str:
+    """Detect MIME type from file signature (magic bytes).
+
+    Provides content-based validation even when python-magic is unavailable.
+    """
+    if len(file_bytes) < 4:
+        return "application/octet-stream"
+
+    # PDF: starts with %PDF
+    if file_bytes[:4] == b"%PDF":
+        return "application/pdf"
+    # JPEG: starts with FF D8 FF
+    if file_bytes[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    # PNG: starts with 89 50 4E 47 0D 0A 1A 0A
+    if file_bytes[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    # WebP: RIFF....WEBP
+    if len(file_bytes) >= 12 and file_bytes[:4] == b"RIFF" and file_bytes[8:12] == b"WEBP":
+        return "image/webp"
+
+    return "application/octet-stream"
+
 MAX_FILENAME_LENGTH = 255
 
 
@@ -38,32 +62,25 @@ def validate_upload_file(file: UploadFile) -> None:
         )
 
 
-def validate_file_content(file_bytes: bytes, filename: str) -> str:
-    if len(file_bytes) == 0:
+def validate_file_content(file_bytes: bytes, filename: str, file_size: int = None) -> str:
+    actual_size = file_size if file_size is not None else len(file_bytes)
+    if actual_size == 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Empty file uploaded",
         )
 
-    if len(file_bytes) > settings.max_upload_size_bytes:
+    if actual_size > settings.max_upload_size_bytes:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=f"File size exceeds {settings.max_upload_size_mb}MB limit",
         )
 
-    if magic is None:
-        # Fallback: infer MIME from file extension when python-magic is unavailable
-        ext = Path(filename).suffix.lower() if filename else ""
-        mime_map = {
-            ".pdf": "application/pdf",
-            ".jpg": "image/jpeg",
-            ".jpeg": "image/jpeg",
-            ".png": "image/png",
-            ".webp": "image/webp",
-        }
-        detected_mime = mime_map.get(ext, "application/octet-stream")
-    else:
+    if magic is not None:
         detected_mime = magic.from_buffer(file_bytes[:2048], mime=True)
+    else:
+        # Fallback: validate using magic bytes (file signature) for content-based security
+        detected_mime = _detect_mime_from_magic_bytes(file_bytes)
     if detected_mime not in ALLOWED_MIME_TYPES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

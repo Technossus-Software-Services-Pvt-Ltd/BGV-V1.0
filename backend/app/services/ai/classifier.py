@@ -48,8 +48,8 @@ class OwnershipExtractionResult:
 class AIClassifier:
     """AI-powered document classification using local LLM via Ollama."""
 
-    def __init__(self):
-        self.client = OllamaClient()
+    def __init__(self, client: Optional[OllamaClient] = None):
+        self.client = client or OllamaClient()
 
     async def classify_document(
         self,

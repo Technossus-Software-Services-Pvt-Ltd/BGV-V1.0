@@ -37,6 +37,8 @@ services:
     container_name: bgv_backend
     environment:
       - DATABASE_URL=postgresql+asyncpg://bgv_user:${POSTGRES_PASSWORD:-bgv_secure_pass_change_me}@postgres:5432/bgv_db
+      - DATABASE_SYNC_URL=postgresql://bgv_user:${POSTGRES_PASSWORD:-bgv_secure_pass_change_me}@postgres:5432/bgv_db
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set}
       - OLLAMA_BASE_URL=http://ollama:11434
       - UPLOAD_DIR=/app/uploads
       - LOG_LEVEL=INFO

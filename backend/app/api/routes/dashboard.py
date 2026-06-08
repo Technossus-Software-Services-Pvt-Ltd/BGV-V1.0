@@ -1,10 +1,16 @@
 from datetime import datetime, timezone, timedelta
+import asyncio
+import time
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, case, cast, Date
 
 from app.db.session import get_db
+from app.api.deps import get_current_user
+from app.core.config import settings
+from app.models.auth_user import AuthUser
 from app.models.document import Document
 from app.models.batch_import import BatchImport
 from app.models.batch_import_candidate import BatchImportCandidate
@@ -13,10 +19,21 @@ from app.models.enums import ProcessingStatus, BatchImportStatus, ValidationStat
 
 router = APIRouter(prefix="/dashboard")
 
+# Simple time-based cache for dashboard stats (30 second TTL) with lock for concurrent safety
+_dashboard_cache: dict[str, Any] = {"data": None, "expires_at": 0.0}
+_dashboard_cache_lock = asyncio.Lock()
+
 
 @router.get("/stats")
-async def get_dashboard_stats(db: AsyncSession = Depends(get_db)):
+async def get_dashboard_stats(
+    db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
+):
     """Aggregate stats for the dashboard."""
+
+    # Return cached result if still fresh (lock-free fast path)
+    if _dashboard_cache["data"] is not None and time.time() < _dashboard_cache["expires_at"]:
+        return _dashboard_cache["data"]
 
     # --- Document Stats ---
     doc_status_result = await db.execute(
@@ -97,7 +114,7 @@ async def get_dashboard_stats(db: AsyncSession = Depends(get_db)):
     )
     doc_types = [{"type": row[0], "count": row[1]} for row in doc_type_result.all()]
 
-    return {
+    result = {
         "summary": {
             "total_documents": total_documents,
             "completed_documents": completed_docs,
@@ -125,3 +142,9 @@ async def get_dashboard_stats(db: AsyncSession = Depends(get_db)):
         "daily_batches": daily_batches,
         "document_types": doc_types,
     }
+
+    async with _dashboard_cache_lock:
+        _dashboard_cache["data"] = result
+        _dashboard_cache["expires_at"] = time.time() + settings.dashboard_cache_ttl_seconds
+
+    return result

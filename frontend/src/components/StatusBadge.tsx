@@ -18,6 +18,8 @@ const statusConfig: Record<string, { color: string; label: string }> = {
   validated: { color: 'badge-info', label: 'Validated' },
   validation_failed: { color: 'badge-error', label: 'Validation Failed' },
   completed: { color: 'badge-success', label: 'Completed' },
+  partial: { color: 'badge-warning', label: 'Partial' },
+  awaiting_required_documents: { color: 'badge-warning', label: 'Awaiting Documents' },
   failed: { color: 'badge-error', label: 'Failed' },
 };
 

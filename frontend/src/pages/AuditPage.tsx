@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { listBatchImports, getBatchLogs, getBatchDetail, BatchLogItem } from '../api/endpoints';
 import { BatchImport, BatchCandidate } from '../types';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -23,7 +23,7 @@ export default function AuditPage() {
   const [levelFilter, setLevelFilter] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState('');
 
-  const loadBatches = async () => {
+  const loadBatches = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -39,11 +39,11 @@ export default function AuditPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [statusFilter, dateFrom, dateTo]);
 
   useEffect(() => {
     loadBatches();
-  }, [statusFilter, dateFrom, dateTo]);
+  }, [loadBatches]);
 
   const handleBatchSelect = async (batch: BatchImport) => {
     setSelectedBatch(batch);

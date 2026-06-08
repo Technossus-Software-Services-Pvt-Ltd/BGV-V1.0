@@ -5,7 +5,10 @@ from sqlalchemy.orm import selectinload
 from typing import List, Optional
 from datetime import datetime, timedelta
 
+from app.api.utils import parse_date_param
 from app.db.session import get_db
+from app.api.deps import get_current_user
+from app.models.auth_user import AuthUser
 from app.models.processing_event import ProcessingEvent
 from app.models.audit_log import AuditLog
 from app.models.upload_batch import UploadBatch
@@ -20,6 +23,7 @@ router = APIRouter()
 async def get_processing_timeline(
     document_id: str,
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     result = await db.execute(
         select(ProcessingEvent)
@@ -48,14 +52,15 @@ async def list_batches(
     skip: int = 0,
     limit: int = 50,
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     query = select(UploadBatch).options(selectinload(UploadBatch.candidate)).order_by(UploadBatch.created_at.desc())
     if candidate_id:
         query = query.where(UploadBatch.candidate_id == candidate_id)
     if date_from:
-        query = query.where(UploadBatch.created_at >= datetime.strptime(date_from, "%Y-%m-%d"))
+        query = query.where(UploadBatch.created_at >= parse_date_param(date_from, "date_from"))
     if date_to:
-        query = query.where(UploadBatch.created_at < datetime.strptime(date_to, "%Y-%m-%d") + timedelta(days=1))
+        query = query.where(UploadBatch.created_at < parse_date_param(date_to, "date_to") + timedelta(days=1))
     query = query.offset(skip).limit(limit)
 
     result = await db.execute(query)
@@ -82,6 +87,7 @@ async def list_batches(
 async def get_batch(
     batch_id: str,
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     result = await db.execute(
         select(UploadBatch).options(selectinload(UploadBatch.candidate)).where(UploadBatch.id == batch_id)
@@ -113,6 +119,7 @@ async def get_audit_logs(
     skip: int = 0,
     limit: int = 100,
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     query = select(AuditLog).order_by(AuditLog.created_at.desc())
 

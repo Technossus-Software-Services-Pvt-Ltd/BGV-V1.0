@@ -3,11 +3,14 @@ import asyncio
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, status, BackgroundTasks, Request
+import aiofiles
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.db.session import get_db
+from app.api.deps import get_current_user
+from app.models.auth_user import AuthUser
 from app.models.candidate import Candidate
 from app.models.upload_batch import UploadBatch
 from app.models.document import Document
@@ -22,23 +25,41 @@ from app.core.logging import get_logger
 router = APIRouter()
 logger = get_logger("api.upload")
 
+# Bounded concurrency for background document processing (prevents OOM under load)
+_processing_semaphore = asyncio.Semaphore(4)
+# Track in-flight tasks for graceful shutdown
+_inflight_tasks: set[asyncio.Task] = set()
+
+# Centralized task manager
+from app.services.task_manager import task_manager, TaskType
+
+
+def _handle_task_exception(task: asyncio.Task) -> None:
+    """Log unhandled exceptions from fire-and-forget background tasks."""
+    _inflight_tasks.discard(task)
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc:
+        logger.error("background_task_failed", error=str(exc), exc_info=exc)
+
 
 @router.post("/upload", response_model=UploadResponse, status_code=status.HTTP_202_ACCEPTED)
 async def upload_documents(
-    background_tasks: BackgroundTasks,
     request: Request,
-    candidate_id: str = Form(...),
-    candidate_name: str = Form(...),
+    candidate_id: str = Form(..., min_length=1, max_length=100),
+    candidate_name: str = Form(..., min_length=1, max_length=255),
     candidate_dob: Optional[str] = Form(None),
     candidate_gender: Optional[str] = Form(None),
     files: List[UploadFile] = File(...),
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     if not files:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No files provided")
 
-    if len(files) > 20:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Maximum 20 files per upload")
+    if len(files) > settings.max_files_per_upload:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Maximum {settings.max_files_per_upload} files per upload")
 
     correlation_id = str(uuid.uuid4())
     logger.info("upload_start", candidate_id=candidate_id, candidate_name=candidate_name, file_count=len(files), correlation_id=correlation_id)
@@ -86,21 +107,38 @@ async def upload_documents(
         # Validate file metadata
         validate_upload_file(file)
 
-        # Read file content
-        file_bytes = await file.read()
-
-        # Validate file content (MIME type check via magic bytes)
-        detected_mime = validate_file_content(file_bytes, file.filename)
-
-        # Generate safe storage path
+        # Stream file to disk to avoid buffering entire file in memory
         file_ext = Path(file.filename).suffix.lower()
         stored_name = f"{uuid.uuid4().hex}{file_ext}"
         file_dir = settings.upload_path / correlation_id
         file_dir.mkdir(parents=True, exist_ok=True)
         file_path = file_dir / stored_name
 
-        # Write file
-        file_path.write_bytes(file_bytes)
+        file_size = 0
+        header_bytes = b""
+        async with aiofiles.open(file_path, "wb") as f:
+            while chunk := await file.read(1024 * 1024):  # 1MB chunks
+                if file_size == 0:
+                    header_bytes = chunk[:2048]
+                file_size += len(chunk)
+                if file_size > settings.max_upload_size_bytes:
+                    break
+                await f.write(chunk)
+
+        # Remove file if size exceeded
+        if file_size > settings.max_upload_size_bytes:
+            file_path.unlink(missing_ok=True)
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"File size exceeds {settings.max_upload_size_mb}MB limit",
+            )
+
+        # Validate using streamed header bytes and total size
+        try:
+            detected_mime = validate_file_content(header_bytes + b"\x00" * max(0, 2048 - len(header_bytes)), file.filename, file_size=file_size)
+        except HTTPException:
+            file_path.unlink(missing_ok=True)
+            raise
 
         # Create document record
         document = Document(
@@ -109,7 +147,7 @@ async def upload_documents(
             original_filename=file.filename,
             stored_filename=stored_name,
             file_path=str(file_path),
-            file_size_bytes=len(file_bytes),
+            file_size_bytes=file_size,
             mime_type=detected_mime,
             processing_status=ProcessingStatus.UPLOADED.value,
             correlation_id=correlation_id,
@@ -120,7 +158,7 @@ async def upload_documents(
         document_records.append({
             "id": document.id,
             "filename": file.filename,
-            "size_bytes": len(file_bytes),
+            "size_bytes": file_size,
             "mime_type": detected_mime,
             "status": ProcessingStatus.UPLOADED.value,
         })
@@ -129,21 +167,25 @@ async def upload_documents(
         await audit.log(
             correlation_id=correlation_id,
             action=AuditAction.UPLOAD.value,
-            message=f"File uploaded: {sanitize_filename(file.filename)} ({len(file_bytes)} bytes)",
+            message=f"File uploaded: {sanitize_filename(file.filename)} ({file_size} bytes)",
             candidate_id=candidate.id,
             document_id=document.id,
             processing_stage="upload",
-            details={"mime_type": detected_mime, "size_bytes": len(file_bytes)},
+            details={"mime_type": detected_mime, "size_bytes": file_size},
             ip_address=request.client.host if request.client else None,
             user_agent=request.headers.get("user-agent", "")[:200],
         )
 
     await db.commit()
 
-    # Queue background processing for each document
+    # Queue background processing for each document (non-blocking asyncio tasks)
     logger.info("upload_complete", batch_reference=batch_reference, file_count=len(files), correlation_id=correlation_id)
     for doc_info in document_records:
-        background_tasks.add_task(_process_document_background, doc_info["id"])
+        task_manager.submit(
+            _process_document_background(doc_info["id"]),
+            task_type=TaskType.DOCUMENT_PROCESSING,
+            name=f"doc-{doc_info['id'][:8]}",
+        )
 
     return UploadResponse(
         batch_id=batch.id,
@@ -159,11 +201,12 @@ async def upload_documents(
 async def _process_document_background(document_id: str):
     """Background task to process a single document through the pipeline."""
     from app.db.session import AsyncSessionLocal
+    from app.services.dependencies import get_processing_pipeline
 
     async with AsyncSessionLocal() as db:
         try:
             logger.info("background_processing_start", document_id=document_id)
-            pipeline = ProcessingPipeline(db)
+            pipeline = get_processing_pipeline(db)
             await pipeline.process_document(document_id)
             await db.commit()
             logger.info("background_processing_complete", document_id=document_id)

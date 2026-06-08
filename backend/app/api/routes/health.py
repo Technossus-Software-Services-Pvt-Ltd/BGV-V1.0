@@ -4,12 +4,13 @@ from app.core.config import settings
 
 router = APIRouter()
 
+_ollama_client = OllamaClient()
+
 
 @router.get("/health")
 async def health_check():
-    ollama_client = OllamaClient()
-    ollama_healthy = await ollama_client.check_health()
-    model_available = await ollama_client.ensure_model_available() if ollama_healthy else False
+    ollama_healthy = await _ollama_client.check_health()
+    model_available = await _ollama_client.ensure_model_available() if ollama_healthy else False
 
     return {
         "status": "healthy",

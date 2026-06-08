@@ -5,12 +5,15 @@ from pathlib import Path
 from typing import List, Optional
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status, BackgroundTasks, Query
+import aiofiles
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func
 
 from app.db.session import get_db
+from app.api.deps import get_current_user
+from app.models.auth_user import AuthUser
 from app.models.batch_import import BatchImport
 from app.models.batch_import_candidate import BatchImportCandidate
 from app.models.batch_log import BatchLog
@@ -30,6 +33,8 @@ from app.core.logging import get_logger
 router = APIRouter(prefix="/batch")
 logger = get_logger("api.batch")
 
+from app.services.task_manager import task_manager, TaskType
+
 ALLOWED_IMPORT_EXTENSIONS = {".csv", ".xlsx", ".xls"}
 
 
@@ -37,6 +42,7 @@ ALLOWED_IMPORT_EXTENSIONS = {".csv", ".xlsx", ".xls"}
 async def upload_batch_file(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     """Upload an Excel/CSV file containing candidate data for batch processing."""
     if not file.filename:
@@ -71,7 +77,8 @@ async def upload_batch_file(
     file_dir = settings.upload_path / "batch_imports"
     file_dir.mkdir(parents=True, exist_ok=True)
     file_path = file_dir / stored_name
-    file_path.write_bytes(file_bytes)
+    async with aiofiles.open(file_path, "wb") as f:
+        await f.write(file_bytes)
 
     # Create batch import record
     batch = BatchImport(
@@ -90,7 +97,7 @@ async def upload_batch_file(
         batch.status = BatchImportStatus.PARSING.value
         await db.flush()
 
-        parsed_candidates, parse_errors = parse_import_file(str(file_path), file.filename)
+        parsed_candidates, parse_errors = await asyncio.to_thread(parse_import_file, str(file_path), file.filename)
 
         if parse_errors:
             logger.warning("batch_parse_warnings", batch_code=batch_code, errors=parse_errors[:10])
@@ -141,8 +148,8 @@ async def upload_batch_file(
 @router.post("/{batch_id}/start", response_model=BatchImportResponse)
 async def start_batch_processing(
     batch_id: str,
-    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     """Start processing a parsed batch import."""
     result = await db.execute(select(BatchImport).where(BatchImport.id == batch_id))
@@ -160,7 +167,12 @@ async def start_batch_processing(
     batch.status = BatchImportStatus.PROCESSING.value
     await db.commit()
 
-    background_tasks.add_task(_process_batch_background, batch_id)
+    # Submit to centralized task manager with concurrency control
+    task_manager.submit(
+        _process_batch_background(batch_id),
+        task_type=TaskType.BATCH_PROCESSING,
+        name=f"batch-{batch_id[:8]}",
+    )
 
     return BatchImportResponse.model_validate(batch)
 
@@ -173,6 +185,7 @@ async def list_batch_imports(
     date_from: Optional[str] = Query(None),
     date_to: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     """List all batch imports with optional filters."""
     query = select(BatchImport).order_by(desc(BatchImport.created_at))
@@ -203,6 +216,7 @@ async def list_batch_imports(
 async def get_batch_detail(
     batch_id: str,
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     """Get batch import with all candidate details."""
     result = await db.execute(select(BatchImport).where(BatchImport.id == batch_id))
@@ -228,6 +242,7 @@ async def list_batch_candidates(
     batch_id: str,
     status_filter: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     """List candidates for a batch import with optional status filter."""
     query = select(BatchImportCandidate).where(
@@ -246,8 +261,8 @@ async def list_batch_candidates(
 async def retry_batch_candidate(
     batch_id: str,
     candidate_id: str,
-    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     """Retry processing a failed candidate."""
     result = await db.execute(
@@ -263,7 +278,11 @@ async def retry_batch_candidate(
     if bc.status not in (BatchCandidateStatus.FAILED.value, BatchCandidateStatus.NO_DOCUMENTS.value):
         raise HTTPException(status_code=400, detail=f"Candidate is in '{bc.status}' state. Only 'failed' or 'no_documents' can be retried.")
 
-    background_tasks.add_task(_retry_candidate_background, batch_id, candidate_id)
+    task_manager.submit(
+        _retry_candidate_background(batch_id, candidate_id),
+        task_type=TaskType.BATCH_PROCESSING,
+        name=f"retry-{candidate_id[:8]}",
+    )
     return BatchCandidateResponse.model_validate(bc)
 
 
@@ -273,6 +292,7 @@ async def get_batch_logs(
     candidate_id: Optional[str] = Query(None),
     level: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     """Get all logs for a batch (REST endpoint for audit page)."""
     result = await db.execute(select(BatchImport).where(BatchImport.id == batch_id))
@@ -313,6 +333,7 @@ async def stream_batch_logs(
     batch_id: str,
     after: Optional[str] = Query(None, description="Return logs after this log ID"),
     db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
 ):
     """SSE endpoint for real-time batch processing logs."""
     # Verify batch exists
@@ -340,8 +361,9 @@ async def _log_stream_generator(batch_id: str, after_id: Optional[str]):
     consecutive_empty = 0
     max_empty = 120  # ~2 minutes of no new logs before closing
 
-    while True:
-        async with AsyncSessionLocal() as db:
+    # Use a single session for the entire stream to avoid connection pool churn
+    async with AsyncSessionLocal() as db:
+        while True:
             query = (
                 select(BatchLog)
                 .where(BatchLog.batch_import_id == batch_id)
@@ -396,17 +418,20 @@ async def _log_stream_generator(batch_id: str, after_id: Optional[str]):
                 yield f"data: {json.dumps({'type': 'timeout'})}\n\n"
                 return
 
-        await asyncio.sleep(1)
+            # Expire cached ORM state so next iteration sees fresh data
+            db.expire_all()
+            await asyncio.sleep(1)
 
 
 async def _process_batch_background(batch_import_id: str):
     """Background task for batch processing."""
     from app.db.session import AsyncSessionLocal
+    from app.services.dependencies import get_batch_orchestrator
 
     async with AsyncSessionLocal() as db:
         try:
             logger.info("batch_processing_start", batch_id=batch_import_id)
-            orchestrator = BatchOrchestrator(db)
+            orchestrator = get_batch_orchestrator(db)
             await orchestrator.process_batch(batch_import_id)
             logger.info("batch_processing_complete", batch_id=batch_import_id)
         except Exception as e:
@@ -417,11 +442,15 @@ async def _process_batch_background(batch_import_id: str):
 async def _retry_candidate_background(batch_import_id: str, batch_candidate_id: str):
     """Background task for retrying a single candidate."""
     from app.db.session import AsyncSessionLocal
+    from app.services.dependencies import get_batch_orchestrator
 
     async with AsyncSessionLocal() as db:
         try:
-            orchestrator = BatchOrchestrator(db)
+            orchestrator = get_batch_orchestrator(db)
             await orchestrator.retry_candidate(batch_import_id, batch_candidate_id)
         except Exception as e:
             await db.rollback()
             logger.error("retry_candidate_failed", batch_candidate_id=batch_candidate_id, error=str(e))
+
+
+

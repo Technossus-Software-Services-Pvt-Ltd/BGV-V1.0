@@ -322,3 +322,60 @@ export interface FileNamingRuleSaveRequest {
   folder_structure_pattern: string;
   file_rename_pattern: string;
 }
+
+// === Review Queue Types ===
+
+export interface ReviewQueueItem {
+  id: string;
+  batch_import_id: string;
+  batch_code: string;
+  candidate_id: string | null;
+  source_candidate_id: string;
+  source_name: string;
+  source_email: string | null;
+  status: string;
+  documents_found: number;
+  documents_processed: number;
+  error_message: string | null;
+  notification_status: string | null;
+  notification_sent_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NotificationLogItem {
+  id: string;
+  candidate_id: string;
+  recipient_email: string;
+  subject: string;
+  body_html: string;
+  status: string;
+  error_message: string | null;
+  sent_at: string | null;
+  created_at: string;
+}
+
+export interface ReviewQueueResponse {
+  items: ReviewQueueItem[];
+  total: number;
+}
+
+// === Dashboard Types ===
+
+export interface DashboardStats {
+  summary: {
+    total_documents: number;
+    completed_documents: number;
+    failed_documents: number;
+    skipped_documents: number;
+    in_progress_documents: number;
+    total_batches: number;
+    total_candidates: number;
+  };
+  document_status: { status: string; count: number }[];
+  batch_status: { status: string; count: number }[];
+  ownership_verification: { status: string; count: number }[];
+  daily_documents: { date: string; count: number }[];
+  daily_batches: { date: string; count: number }[];
+  document_types: { type: string; count: number }[];
+}

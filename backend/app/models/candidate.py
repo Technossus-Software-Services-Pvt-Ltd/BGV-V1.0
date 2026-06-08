@@ -21,5 +21,5 @@ class Candidate(Base):
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
     # Relationships
-    upload_batches = relationship("UploadBatch", back_populates="candidate", lazy="selectin")
-    documents = relationship("Document", back_populates="candidate", lazy="selectin")
+    upload_batches = relationship("UploadBatch", back_populates="candidate", lazy="noload")
+    documents = relationship("Document", back_populates="candidate", lazy="noload")

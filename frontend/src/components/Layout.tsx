@@ -1,172 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { clearStoredUser, getStoredUser } from '../utils/auth';
-import { logoutUser } from '../api/endpoints';
-
-type NavItem = {
-  name: string;
-  path: string;
-  icon: JSX.Element;
-};
-
-const navigation: NavItem[] = [
-  {
-    name: 'Dashboard',
-    path: '/',
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden="true">
-        <rect x="3" y="4" width="8" height="7" rx="1.5" />
-        <rect x="13" y="4" width="8" height="7" rx="1.5" />
-        <rect x="3" y="13" width="8" height="7" rx="1.5" />
-        <rect x="13" y="13" width="8" height="7" rx="1.5" />
-      </svg>
-    ),
-  },
-  {
-    name: 'Batch Processing',
-    path: '/upload',
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden="true">
-        <path d="M3 8h18" />
-        <path d="M3 12h18" />
-        <path d="M3 16h18" />
-        <rect x="3" y="5" width="18" height="14" rx="2" />
-      </svg>
-    ),
-  },
-  {
-    name: 'Documents',
-    path: '/documents',
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden="true">
-        <path d="M8 3h7l5 5v13H8z" />
-        <path d="M15 3v5h5" />
-        <path d="M11 13h6" />
-        <path d="M11 17h6" />
-      </svg>
-    ),
-  },
-  {
-    name: 'Candidates',
-    path: '/candidates',
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden="true">
-        <circle cx="12" cy="8" r="3.5" />
-        <path d="M5 20c1.8-3 4-4.5 7-4.5s5.2 1.5 7 4.5" />
-      </svg>
-    ),
-  },
-  {
-    name: 'Audit Logs',
-    path: '/audit',
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden="true">
-        <path d="M4 12a8 8 0 1 0 3-6.2" />
-        <path d="M4 4v4h4" />
-        <path d="M12 8v5l3 2" />
-      </svg>
-    ),
-  },
-  {
-    name: 'Settings',
-    path: '/settings',
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden="true">
-        <path d="M12 8.5A3.5 3.5 0 1 1 8.5 12 3.5 3.5 0 0 1 12 8.5Z" />
-        <path d="M19.4 15a1 1 0 0 0 .2 1.1l.1.1a2 2 0 0 1 0 2.8 2 2 0 0 1-2.8 0l-.1-.1a1 1 0 0 0-1.1-.2 1 1 0 0 0-.6.9V20a2 2 0 0 1-4 0v-.2a1 1 0 0 0-.6-.9 1 1 0 0 0-1.1.2l-.1.1a2 2 0 0 1-2.8 0 2 2 0 0 1 0-2.8l.1-.1a1 1 0 0 0 .2-1.1 1 1 0 0 0-.9-.6H4a2 2 0 0 1 0-4h.2a1 1 0 0 0 .9-.6 1 1 0 0 0-.2-1.1l-.1-.1a2 2 0 0 1 0-2.8 2 2 0 0 1 2.8 0l.1.1a1 1 0 0 0 1.1.2H9a1 1 0 0 0 .6-.9V4a2 2 0 0 1 4 0v.2a1 1 0 0 0 .6.9 1 1 0 0 0 1.1-.2l.1-.1a2 2 0 0 1 2.8 0 2 2 0 0 1 0 2.8l-.1.1a1 1 0 0 0-.2 1.1V9a1 1 0 0 0 .9.6h.2a2 2 0 0 1 0 4h-.2a1 1 0 0 0-.9.6Z" />
-      </svg>
-    ),
-  },
-];
+import { useEffect, useState } from 'react';
+import { Link, Outlet, useLocation } from 'react-router-dom';
+import { SidebarNav, UserMenu, MobileDrawer } from './layout/index';
 
 export default function Layout() {
   const location = useLocation();
-  const navigate = useNavigate();
-  const [menuOpen, setMenuOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement | null>(null);
-
-  const user = getStoredUser();
-  const userName = user?.name?.trim() || user?.email || 'User';
-  const userEmail = user?.email || '';
-
-  const initials = useMemo(() => {
-    const source = user?.name?.trim() || user?.email || 'U';
-    const parts = source.split(/\s+/).filter(Boolean);
-    if (parts.length >= 2) {
-      return `${parts[0][0] || ''}${parts[1][0] || ''}`.toUpperCase();
-    }
-    return (source.slice(0, 2) || 'U').toUpperCase();
-  }, [user?.name, user?.email]);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setMenuOpen(false);
-      }
-    };
-
-    if (menuOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [menuOpen]);
 
   useEffect(() => {
     setSidebarOpen(false);
-    setMenuOpen(false);
   }, [location.pathname]);
-
-  const handleLogout = async () => {
-    try {
-      await logoutUser();
-    } catch {
-      // Always clear local auth even if network/API logout fails.
-    } finally {
-      clearStoredUser();
-      setMenuOpen(false);
-      navigate('/login', { replace: true });
-    }
-  };
-
-  const handleOpenProfile = () => {
-    setMenuOpen(false);
-    navigate('/profile');
-  };
-
-  const renderNavigation = (isMobileMenu = false) => (
-    <nav className="space-y-1.5" aria-label="Main Navigation">
-      {navigation.map((item) => {
-        const isActive = location.pathname === item.path ||
-          (item.path !== '/' && location.pathname.startsWith(item.path));
-
-        return (
-          <Link
-            key={item.path}
-            to={item.path}
-            className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
-              isActive
-                ? 'bg-white/[0.12] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.1)] backdrop-blur-sm'
-                : 'text-slate-300 hover:bg-white/[0.07] hover:text-white'
-            }`}
-            onClick={() => {
-              if (isMobileMenu) {
-                setSidebarOpen(false);
-              }
-            }}
-          >
-            <span className={`transition-colors duration-200 ${isActive ? 'text-primary-300' : 'text-slate-400 group-hover:text-slate-200'}`}>
-              {item.icon}
-            </span>
-            {item.name}
-          </Link>
-        );
-      })}
-    </nav>
-  );
 
   return (
     <div className="min-h-screen bg-gray-50/80 lg:flex">
@@ -185,52 +27,11 @@ export default function Layout() {
 
         <div className="flex-1 overflow-y-auto px-4 py-6">
           <p className="px-3 pb-3 text-[10px] font-bold tracking-[0.2em] text-slate-500 uppercase">Main Menu</p>
-          {renderNavigation()}
+          <SidebarNav />
         </div>
 
         <div className="border-t border-white/[0.08] p-4">
-          <div className="relative" ref={menuRef}>
-            <button
-              type="button"
-              onClick={() => setMenuOpen((prev) => !prev)}
-              className="w-full flex items-center gap-3 rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2.5 hover:bg-white/[0.08] transition-colors duration-200"
-            >
-              {user?.picture ? (
-                <img
-                  src={user.picture}
-                  alt={userName}
-                  className="h-9 w-9 rounded-full object-cover"
-                />
-              ) : (
-                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary-600 text-xs font-semibold text-white">
-                  {initials}
-                </div>
-              )}
-              <div className="min-w-0 text-left">
-                <p className="truncate text-sm font-semibold text-white">{userName}</p>
-                <p className="truncate text-xs text-slate-300">{userEmail}</p>
-              </div>
-            </button>
-
-            {menuOpen && (
-              <div className="absolute bottom-14 left-0 right-0 rounded-xl border border-white/[0.08] bg-slate-800/95 backdrop-blur-xl shadow-xl z-20 overflow-hidden">
-                <button
-                  type="button"
-                  onClick={handleOpenProfile}
-                  className="w-full px-4 py-2.5 text-left text-sm text-slate-200 hover:bg-white/[0.08] transition-colors"
-                >
-                  Profile
-                </button>
-                <button
-                  type="button"
-                  onClick={handleLogout}
-                  className="w-full px-4 py-2.5 text-left text-sm text-red-300 hover:bg-red-500/20 border-t border-white/[0.08] transition-colors"
-                >
-                  Logout
-                </button>
-              </div>
-            )}
-          </div>
+          <UserMenu variant="sidebar" />
         </div>
       </aside>
 
@@ -256,80 +57,11 @@ export default function Layout() {
               <span className="font-bold text-gray-900">BGV Platform</span>
             </Link>
 
-            <button
-              type="button"
-              aria-label="Open account menu"
-              onClick={() => setMenuOpen((prev) => !prev)}
-              className="inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-gray-200"
-            >
-              {user?.picture ? (
-                <img
-                  src={user.picture}
-                  alt={userName}
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                <span className="text-xs font-semibold text-gray-700">{initials}</span>
-              )}
-            </button>
-
-            {menuOpen && (
-              <div className="absolute right-4 top-14 w-56 rounded-xl border border-gray-100 bg-white/95 backdrop-blur-xl shadow-lg z-20 overflow-hidden sm:right-6">
-                <div className="px-4 py-3 border-b border-gray-100">
-                  <p className="text-sm font-semibold text-gray-900 truncate">{userName}</p>
-                  <p className="text-xs text-gray-400 truncate">{userEmail}</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleOpenProfile}
-                  className="w-full px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-                >
-                  Profile
-                </button>
-                <button
-                  type="button"
-                  onClick={handleLogout}
-                  className="w-full px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 border-t border-gray-100 transition-colors"
-                >
-                  Logout
-                </button>
-              </div>
-            )}
+            <UserMenu variant="mobile" />
           </div>
         </header>
 
-        {sidebarOpen && (
-          <div className="fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal="true">
-            <button
-              type="button"
-              aria-label="Close navigation"
-              className="absolute inset-0 bg-slate-950/50"
-              onClick={() => setSidebarOpen(false)}
-            />
-            <aside className="relative h-full w-[17rem] bg-gradient-to-b from-slate-900 via-slate-900 to-slate-950 text-white shadow-xl">
-              <div className="border-b border-white/[0.08] px-4 py-4 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 bg-gradient-to-br from-primary-500 to-primary-700 rounded-lg flex items-center justify-center shadow-sm">
-                    <span className="text-white font-bold text-xs">BGV</span>
-                  </div>
-                  <span className="font-bold text-white">BGV Platform</span>
-                </div>
-                <button
-                  type="button"
-                  aria-label="Close menu"
-                  onClick={() => setSidebarOpen(false)}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-white/[0.08] text-slate-200 hover:bg-white/[0.08] transition-colors"
-                >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5" aria-hidden="true">
-                    <path d="M6 6l12 12" />
-                    <path d="M18 6L6 18" />
-                  </svg>
-                </button>
-              </div>
-              <div className="px-3 py-4">{renderNavigation(true)}</div>
-            </aside>
-          </div>
-        )}
+        <MobileDrawer open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
         <main className="flex-1">
           <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8 animate-fade-in">
