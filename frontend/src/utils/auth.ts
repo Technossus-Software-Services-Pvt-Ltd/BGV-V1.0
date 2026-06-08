@@ -1,15 +1,14 @@
 import { AuthUser } from '../types/auth';
 
 const AUTH_USER_KEY = 'bgv_auth_user';
-const AUTH_SESSION_KEY = 'bgv_auth_session';
 
 /**
- * Session token is stored in sessionStorage (not localStorage) to reduce exposure:
- * - sessionStorage is cleared when the tab/window closes
- * - Not shared across tabs (limits blast radius of XSS)
- * - User profile is kept in localStorage for cross-tab sync (non-sensitive data)
+ * Session tokens are now managed via httpOnly cookies set by the backend.
+ * The frontend cannot read or write the session token directly — this is
+ * intentional to prevent XSS-based token theft.
  *
- * NOTE: For production hardening, migrate to httpOnly cookies set by the backend.
+ * The user profile (non-sensitive) is kept in localStorage for UI display
+ * and cross-tab sync via StorageEvent.
  */
 
 export function getStoredUser(): AuthUser | null {
@@ -26,22 +25,14 @@ export function setStoredUser(user: AuthUser): void {
   localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
 }
 
-export function getSessionToken(): string | null {
-  return sessionStorage.getItem(AUTH_SESSION_KEY);
-}
-
-export function setSessionToken(token: string): void {
-  sessionStorage.setItem(AUTH_SESSION_KEY, token);
-  // Remove from localStorage if previously stored there (migration)
-  localStorage.removeItem(AUTH_SESSION_KEY);
-}
-
 export function clearStoredUser(): void {
   localStorage.removeItem(AUTH_USER_KEY);
-  localStorage.removeItem(AUTH_SESSION_KEY);
-  sessionStorage.removeItem(AUTH_SESSION_KEY);
+  // Clean up legacy sessionStorage entries from previous implementation
+  sessionStorage.removeItem('bgv_auth_session');
 }
 
 export function isAuthenticated(): boolean {
-  return !!getStoredUser() && !!getSessionToken();
+  // With httpOnly cookies, we can only check if user profile exists locally.
+  // The actual session validity is confirmed on the first API call (401 if expired).
+  return !!getStoredUser();
 }

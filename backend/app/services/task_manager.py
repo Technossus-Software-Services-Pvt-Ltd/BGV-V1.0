@@ -12,6 +12,7 @@ Provides:
 import asyncio
 from enum import Enum
 from typing import Callable, Coroutine, Any, Optional
+from weakref import WeakKeyDictionary
 
 from app.core.logging import get_logger
 
@@ -43,6 +44,7 @@ class TaskManager:
         max_notification_concurrency: int = 4,
     ):
         self._tasks: set[asyncio.Task] = set()
+        self._task_types: WeakKeyDictionary[asyncio.Task, TaskType] = WeakKeyDictionary()
         self._semaphores: dict[TaskType, asyncio.Semaphore] = {
             TaskType.DOCUMENT_PROCESSING: asyncio.Semaphore(max_document_concurrency),
             TaskType.BATCH_PROCESSING: asyncio.Semaphore(max_batch_concurrency),
@@ -59,7 +61,7 @@ class TaskManager:
         """Count active tasks of a given type."""
         return sum(
             1 for t in self._tasks
-            if not t.done() and getattr(t, "_task_type", None) == task_type
+            if not t.done() and self._task_types.get(t) == task_type
         )
 
     def submit(
@@ -85,7 +87,7 @@ class TaskManager:
                 await coro
 
         task = asyncio.create_task(_wrapped(), name=name)
-        task._task_type = task_type  # Tag for tracking
+        self._task_types[task] = task_type
         self._tasks.add(task)
         task.add_done_callback(self._on_task_done)
 
@@ -101,7 +103,7 @@ class TaskManager:
         """Cancel all active tasks of a given type. Returns count cancelled."""
         cancelled = 0
         for task in list(self._tasks):
-            if not task.done() and getattr(task, "_task_type", None) == task_type:
+            if not task.done() and self._task_types.get(task) == task_type:
                 task.cancel()
                 cancelled += 1
         if cancelled:
@@ -157,7 +159,7 @@ class TaskManager:
             logger.error(
                 "background_task_failed",
                 name=task.get_name(),
-                task_type=getattr(task, "_task_type", "unknown"),
+                task_type=self._task_types.get(task, "unknown"),
                 error=str(exc),
                 exc_info=exc,
             )

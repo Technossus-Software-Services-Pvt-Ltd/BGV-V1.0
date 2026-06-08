@@ -26,4 +26,4 @@ class AuthUser(Base):
         nullable=False,
     )
 
-    sessions = relationship("AuthSession", back_populates="user", lazy="selectin", cascade="all, delete-orphan")
+    sessions = relationship("AuthSession", back_populates="user", lazy="noload", cascade="all, delete-orphan")

@@ -41,7 +41,9 @@ export default function AuthCallbackPage() {
 
     completeGoogleLogin(code, state)
       .then((response) => {
-        loginRef.current(response.user, response.session_token);
+        // Session cookie is set automatically by the backend response.
+        // We only store the non-sensitive user profile for UI display.
+        loginRef.current(response.user);
         sessionStorage.setItem(callbackLockKey, 'done');
         navigate('/', { replace: true });
       })

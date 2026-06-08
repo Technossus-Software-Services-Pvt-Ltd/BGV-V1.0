@@ -21,15 +21,15 @@ from app.services.ocr.preprocessor import DocumentPreprocessor
 from app.services.ocr.confidence import OCRConfidenceEvaluator
 from app.services.ai.classifier import AIClassifier
 from app.services.validation.ownership import OwnershipValidator
-from app.services.ai.openai_validator import OpenAIOwnershipValidator, OpenAIOwnershipResult
 from app.services.processing.normalizer import DocumentNormalizer
-from app.services.processing.splitter import DocumentSplitter, PageClassification
+from app.services.processing.splitter import DocumentSplitter
 from app.services.audit.logger import AuditService
 
 from app.services.processing.stages.context import PipelineContext
 from app.services.processing.stages.normalization_stage import NormalizationStage
 from app.services.processing.stages.ocr_stage import OCRStage
 from app.services.processing.stages.classification_stage import ClassificationStage
+from app.services.processing.stages.splitting_stage import SplittingStage
 from app.services.processing.stages.validation_stage import ValidationStage
 from app.services.processing.stages.persistence_stage import PersistenceStage
 
@@ -47,15 +47,6 @@ class ProcessingPipeline:
     The public API (process_document) remains unchanged.
     """
 
-    # Class-level singletons for heavy/stateless services (used as defaults)
-    _ocr_engine = PaddleOCREngine()
-    _preprocessor = DocumentPreprocessor()
-    _confidence_evaluator = OCRConfidenceEvaluator()
-    _ai_classifier = AIClassifier()
-    _ownership_validator = OwnershipValidator()
-    _normalizer = DocumentNormalizer()
-    _splitter = DocumentSplitter()
-
     def __init__(
         self,
         db: AsyncSession,
@@ -69,20 +60,31 @@ class ProcessingPipeline:
         splitter: Optional[DocumentSplitter] = None,
         audit_service: Optional[AuditService] = None,
     ):
+        from app.services.dependencies import (
+            get_ocr_engine,
+            get_preprocessor,
+            get_confidence_evaluator,
+            get_ai_classifier,
+            get_ownership_validator,
+            get_normalizer,
+            get_splitter,
+        )
+
         self.db = db
-        self.ocr_engine = ocr_engine or self._ocr_engine
-        self.preprocessor = preprocessor or self._preprocessor
-        self.confidence_evaluator = confidence_evaluator or self._confidence_evaluator
-        self.ai_classifier = ai_classifier or self._ai_classifier
-        self.ownership_validator = ownership_validator or self._ownership_validator
-        self.normalizer = normalizer or self._normalizer
-        self.splitter = splitter or self._splitter
+        self.ocr_engine = ocr_engine or get_ocr_engine()
+        self.preprocessor = preprocessor or get_preprocessor()
+        self.confidence_evaluator = confidence_evaluator or get_confidence_evaluator()
+        self.ai_classifier = ai_classifier or get_ai_classifier()
+        self.ownership_validator = ownership_validator or get_ownership_validator()
+        self.normalizer = normalizer or get_normalizer()
+        self.splitter = splitter or get_splitter()
         self.audit = audit_service or AuditService(db)
 
         # Initialize stages
         self._normalization_stage = NormalizationStage(db, self.normalizer, self.audit)
         self._ocr_stage = OCRStage(db, self.ocr_engine, self.preprocessor, self.audit)
         self._classification_stage = ClassificationStage(db, self.ai_classifier, self.audit)
+        self._splitting_stage = SplittingStage(db, self.splitter, self.audit)
         self._validation_stage = ValidationStage(db, self.ownership_validator, self.audit)
         self._persistence_stage = PersistenceStage(db, self.audit)
 
@@ -120,10 +122,13 @@ class ProcessingPipeline:
             # Stage 3: AI Classification
             await self._classification_stage.execute(ctx)
 
-            # Stage 4: Ownership Validation
+            # Stage 4: Document Splitting (creates child docs if multi-type PDF)
+            await self._splitting_stage.execute(ctx)
+
+            # Stage 5: Ownership Validation (validates each child doc separately if split)
             await self._validation_stage.execute(ctx)
 
-            # Stage 5: Final persistence
+            # Stage 6: Final persistence
             await self._persistence_stage.execute(ctx, start_time)
 
         except Exception as e:

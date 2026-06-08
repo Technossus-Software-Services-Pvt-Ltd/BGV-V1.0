@@ -4,7 +4,7 @@ from typing import Optional
 from urllib.parse import urlencode, urlparse
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel
 from sqlalchemy import or_, select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +21,35 @@ _AUTH_URI = "https://accounts.google.com/o/oauth2/v2/auth"
 _TOKEN_URI = "https://oauth2.googleapis.com/token"
 _USERINFO_URI = "https://www.googleapis.com/oauth2/v2/userinfo"
 _REVOKE_URI = "https://oauth2.googleapis.com/revoke"
+
+# Session cookie configuration
+_COOKIE_MAX_AGE = 7 * 24 * 60 * 60  # 7 days (match session expiry)
+
+
+def _set_session_cookie(response: Response, session_token: str) -> None:
+    """Set an httpOnly session cookie that is immune to XSS-based token theft."""
+    response.set_cookie(
+        key=settings.session_cookie_name,
+        value=session_token,
+        httponly=True,
+        secure=settings.session_cookie_secure,
+        samesite=settings.session_cookie_samesite,
+        max_age=_COOKIE_MAX_AGE,
+        path="/",
+        domain=settings.session_cookie_domain or None,
+    )
+
+
+def _clear_session_cookie(response: Response) -> None:
+    """Clear the session cookie on logout."""
+    response.delete_cookie(
+        key=settings.session_cookie_name,
+        httponly=True,
+        secure=settings.session_cookie_secure,
+        samesite=settings.session_cookie_samesite,
+        path="/",
+        domain=settings.session_cookie_domain or None,
+    )
 
 
 class GoogleAuthStartResponse(BaseModel):
@@ -53,6 +82,11 @@ class LogoutResponse(BaseModel):
 
 
 def _extract_session_token(request: Request) -> Optional[str]:
+    # Cookie first (httpOnly, most secure)
+    cookie_token = request.cookies.get(settings.session_cookie_name)
+    if cookie_token:
+        return cookie_token
+
     auth_header = request.headers.get("authorization", "")
     if auth_header.lower().startswith("bearer "):
         return auth_header[7:].strip()
@@ -140,7 +174,11 @@ async def google_auth_start(
     response_model=GoogleAuthCallbackResponse,
     status_code=status.HTTP_200_OK,
 )
-async def google_auth_callback(payload: GoogleAuthCallbackRequest, db: AsyncSession = Depends(get_db)):
+async def google_auth_callback(
+    payload: GoogleAuthCallbackRequest,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
     _validate_oauth_config()
     await _prune_expired_states(db)
 
@@ -259,6 +297,9 @@ async def google_auth_callback(payload: GoogleAuthCallbackRequest, db: AsyncSess
     db.add(session)
     await db.commit()
 
+    # Set httpOnly cookie for secure session management (XSS-immune)
+    _set_session_cookie(response, session_token)
+
     return GoogleAuthCallbackResponse(
         success=True,
         user=AuthenticatedUser(
@@ -276,8 +317,12 @@ async def google_auth_callback(payload: GoogleAuthCallbackRequest, db: AsyncSess
     response_model=LogoutResponse,
     status_code=status.HTTP_200_OK,
 )
-async def logout(request: Request, db: AsyncSession = Depends(get_db)):
+async def logout(request: Request, response: Response, db: AsyncSession = Depends(get_db)):
     session_token = _extract_session_token(request)
+
+    # Always clear the cookie regardless of token validity
+    _clear_session_cookie(response)
+
     if not session_token:
         return LogoutResponse(success=True, message="Signed out successfully")
 

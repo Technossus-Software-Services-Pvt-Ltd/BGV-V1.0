@@ -32,7 +32,7 @@ async def get_dashboard_stats(
     """Aggregate stats for the dashboard."""
 
     # Return cached result if still fresh (lock-free fast path)
-    if _dashboard_cache["data"] is not None and time.time() < _dashboard_cache["expires_at"]:
+    if _dashboard_cache["data"] is not None and time.monotonic() < _dashboard_cache["expires_at"]:
         return _dashboard_cache["data"]
 
     # --- Document Stats ---
@@ -145,6 +145,6 @@ async def get_dashboard_stats(
 
     async with _dashboard_cache_lock:
         _dashboard_cache["data"] = result
-        _dashboard_cache["expires_at"] = time.time() + settings.dashboard_cache_ttl_seconds
+        _dashboard_cache["expires_at"] = time.monotonic() + settings.dashboard_cache_ttl_seconds
 
     return result

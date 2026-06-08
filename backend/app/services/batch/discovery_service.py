@@ -37,7 +37,7 @@ class DiscoveryService:
         config = result.scalar_one_or_none()
         if config and config.credentials_json:
             try:
-                return GmailScanner(config.credentials_json)
+                return await asyncio.to_thread(GmailScanner, config.credentials_json)
             except Exception as e:
                 logger.error("gmail_init_failed", error=str(e))
         return None
@@ -53,7 +53,7 @@ class DiscoveryService:
         config = result.scalar_one_or_none()
         if config and config.credentials_json:
             try:
-                return GoogleDriveService(config.credentials_json, config.config_json)
+                return await asyncio.to_thread(GoogleDriveService, config.credentials_json, config.config_json)
             except Exception as e:
                 logger.error("drive_init_failed", error=str(e))
         return None

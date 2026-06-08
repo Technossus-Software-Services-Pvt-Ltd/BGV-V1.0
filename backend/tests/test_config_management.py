@@ -55,7 +55,7 @@ class TestSettingsDefaults:
         assert s.dashboard_cache_ttl_seconds == 30
 
     def test_processing_defaults(self):
-        s = Settings(environment="development")
+        s = Settings(environment="development", _env_file=None)
         assert s.max_concurrent_ocr == 2
         assert s.max_concurrent_ai == 1
         assert s.ocr_timeout_seconds == 120

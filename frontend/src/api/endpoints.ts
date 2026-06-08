@@ -1,5 +1,4 @@
 import api from './client';
-import { getSessionToken } from '../utils/auth';
 import {
   UploadResponse,
   DocumentListItem,
@@ -152,21 +151,20 @@ export async function retryBatchCandidate(
 
 export function createBatchLogStream(batchId: string): { close: () => void; onMessage: (handler: (event: string, data: string) => void) => void } {
   const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api/v1';
-  const token = getSessionToken();
   const url = `${baseUrl}/batch/${batchId}/logs`;
 
   let aborted = false;
   const controller = new AbortController();
   let messageHandler: ((event: string, data: string) => void) | null = null;
 
-  // Use fetch with Authorization header instead of EventSource (which can't set headers)
+  // Use fetch with credentials (httpOnly cookie sent automatically)
   (async () => {
     try {
       const response = await fetch(url, {
         headers: {
-          'Authorization': token ? `Bearer ${token}` : '',
           'Accept': 'text/event-stream',
         },
+        credentials: 'include',
         signal: controller.signal,
       });
 

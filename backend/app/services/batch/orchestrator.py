@@ -10,6 +10,7 @@ from sqlalchemy import select
 from app.models.batch_import import BatchImport
 from app.models.batch_import_candidate import BatchImportCandidate
 from app.models.candidate import Candidate
+from app.models.document import Document
 from app.models.upload_batch import UploadBatch
 from app.models.enums import (
     BatchImportStatus,
@@ -92,6 +93,9 @@ class BatchOrchestrator:
 
             for idx, bc in enumerate(candidates, start=1):
                 await self._process_candidate(batch, bc, gmail_scanner, drive_service, idx, total)
+                # Update batch counters atomically with each candidate commit
+                # so persisted state is always consistent if process crashes mid-batch
+                await self._status.update_batch_totals(batch)
                 await self.db.commit()
 
             # Final status
@@ -279,7 +283,8 @@ class BatchOrchestrator:
             if self._pipeline_factory:
                 pipeline = self._pipeline_factory(self.db)
             else:
-                pipeline = ProcessingPipeline(self.db)
+                from app.services.dependencies import get_processing_pipeline
+                pipeline = get_processing_pipeline(self.db)
             confirmed_doc_ids = []
             uploaded_doc_types = set()
             storage_folder_id = None
@@ -290,32 +295,42 @@ class BatchOrchestrator:
                     bc.documents_processed += 1
                     await self.db.flush()
 
-                    vr_result = await self.db.execute(
-                        select(ValidationResult).where(
-                            ValidationResult.document_id == doc_id,
-                            ValidationResult.ownership_confirmed == True,
-                        )
+                    # Check if document was split into children
+                    child_result = await self.db.execute(
+                        select(Document).where(Document.parent_document_id == doc_id)
                     )
-                    if vr_result.scalar_one_or_none():
-                        confirmed_doc_ids.append(doc_id)
+                    child_docs = child_result.scalars().all()
 
-                        doc_type = await self._drive_upload._get_document_type(doc_id)
-                        normalized_type = ChecklistMatcher.normalize_doc_type(doc_type)
+                    # Determine which doc IDs to check for validation/upload
+                    docs_to_check = [c.id for c in child_docs] if child_docs else [doc_id]
 
-                        if not mandatory_doc_names or ChecklistMatcher.doc_type_matches_checklist(normalized_type, mandatory_doc_names):
-                            if drive_service:
-                                drive_service, storage_folder_id = await self._drive_upload.upload_document(
-                                    drive_service, storage_folder_id, batch, bc, doc_id
-                                )
-                                await self._status.log(batch.id, bc.id, "info", "drive_upload",
-                                                      f"{prefix}: Uploaded '{doc_type}' to Drive (ownership confirmed)")
-                            uploaded_doc_types.add(normalized_type)
+                    for check_id in docs_to_check:
+                        vr_result = await self.db.execute(
+                            select(ValidationResult).where(
+                                ValidationResult.document_id == check_id,
+                                ValidationResult.ownership_confirmed == True,
+                            )
+                        )
+                        if vr_result.scalar_one_or_none():
+                            confirmed_doc_ids.append(check_id)
+
+                            doc_type = await self._drive_upload._get_document_type(check_id)
+                            normalized_type = ChecklistMatcher.normalize_doc_type(doc_type)
+
+                            if not mandatory_doc_names or ChecklistMatcher.doc_type_matches_checklist(normalized_type, mandatory_doc_names):
+                                if drive_service:
+                                    drive_service, storage_folder_id = await self._drive_upload.upload_document(
+                                        drive_service, storage_folder_id, batch, bc, check_id
+                                    )
+                                    await self._status.log(batch.id, bc.id, "info", "drive_upload",
+                                                          f"{prefix}: Uploaded '{doc_type}' to Drive (ownership confirmed)")
+                                uploaded_doc_types.add(normalized_type)
+                            else:
+                                await self._status.log(batch.id, bc.id, "info", "checklist",
+                                                       f"{prefix}: '{doc_type}' not in required document checklist - skipping upload")
                         else:
-                            await self._status.log(batch.id, bc.id, "info", "checklist",
-                                                   f"{prefix}: '{doc_type}' not in required document checklist - skipping upload")
-                    else:
-                        await self._status.log(batch.id, bc.id, "warning", "ownership",
-                                               f"{prefix}: Document {doc_id} failed ownership verification - not uploaded")
+                            await self._status.log(batch.id, bc.id, "warning", "ownership",
+                                                   f"{prefix}: Document {check_id} failed ownership verification - not uploaded")
 
                 except Exception as e:
                     bc.documents_failed += 1

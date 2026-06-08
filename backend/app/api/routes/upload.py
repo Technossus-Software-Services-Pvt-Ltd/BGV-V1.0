@@ -1,5 +1,5 @@
+import re
 import uuid
-import asyncio
 from pathlib import Path
 from typing import List, Optional
 
@@ -25,23 +25,11 @@ from app.core.logging import get_logger
 router = APIRouter()
 logger = get_logger("api.upload")
 
-# Bounded concurrency for background document processing (prevents OOM under load)
-_processing_semaphore = asyncio.Semaphore(4)
-# Track in-flight tasks for graceful shutdown
-_inflight_tasks: set[asyncio.Task] = set()
+# Only allow alphanumeric, hyphens, and underscores for candidate IDs
+CANDIDATE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_\-]{1,100}$")
 
 # Centralized task manager
 from app.services.task_manager import task_manager, TaskType
-
-
-def _handle_task_exception(task: asyncio.Task) -> None:
-    """Log unhandled exceptions from fire-and-forget background tasks."""
-    _inflight_tasks.discard(task)
-    if task.cancelled():
-        return
-    exc = task.exception()
-    if exc:
-        logger.error("background_task_failed", error=str(exc), exc_info=exc)
 
 
 @router.post("/upload", response_model=UploadResponse, status_code=status.HTTP_202_ACCEPTED)
@@ -55,6 +43,9 @@ async def upload_documents(
     db: AsyncSession = Depends(get_db),
     _current_user: AuthUser = Depends(get_current_user),
 ):
+    if not CANDIDATE_ID_PATTERN.match(candidate_id):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid candidate_id format")
+
     if not files:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No files provided")
 
@@ -101,80 +92,84 @@ async def upload_documents(
     db.add(batch)
     await db.flush()
 
-    # Process each file
+    # Process each file — track written files for cleanup on failure
     document_records = []
-    for file in files:
-        # Validate file metadata
-        validate_upload_file(file)
+    written_files: List[Path] = []
+    try:
+        for file in files:
+            # Validate file metadata
+            validate_upload_file(file)
 
-        # Stream file to disk to avoid buffering entire file in memory
-        file_ext = Path(file.filename).suffix.lower()
-        stored_name = f"{uuid.uuid4().hex}{file_ext}"
-        file_dir = settings.upload_path / correlation_id
-        file_dir.mkdir(parents=True, exist_ok=True)
-        file_path = file_dir / stored_name
+            # Stream file to disk to avoid buffering entire file in memory
+            file_ext = Path(file.filename).suffix.lower()
+            stored_name = f"{uuid.uuid4().hex}{file_ext}"
+            file_dir = settings.upload_path / correlation_id
+            file_dir.mkdir(parents=True, exist_ok=True)
+            file_path = file_dir / stored_name
 
-        file_size = 0
-        header_bytes = b""
-        async with aiofiles.open(file_path, "wb") as f:
-            while chunk := await file.read(1024 * 1024):  # 1MB chunks
-                if file_size == 0:
-                    header_bytes = chunk[:2048]
-                file_size += len(chunk)
-                if file_size > settings.max_upload_size_bytes:
-                    break
-                await f.write(chunk)
+            file_size = 0
+            header_bytes = b""
+            async with aiofiles.open(file_path, "wb") as f:
+                while chunk := await file.read(1024 * 1024):  # 1MB chunks
+                    if file_size == 0:
+                        header_bytes = chunk[:2048]
+                    file_size += len(chunk)
+                    if file_size > settings.max_upload_size_bytes:
+                        break
+                    await f.write(chunk)
 
-        # Remove file if size exceeded
-        if file_size > settings.max_upload_size_bytes:
-            file_path.unlink(missing_ok=True)
-            raise HTTPException(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail=f"File size exceeds {settings.max_upload_size_mb}MB limit",
+            written_files.append(file_path)
+
+            # Remove file if size exceeded
+            if file_size > settings.max_upload_size_bytes:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail=f"File size exceeds {settings.max_upload_size_mb}MB limit",
+                )
+
+            # Validate using streamed header bytes and total size
+            detected_mime = validate_file_content(header_bytes, file.filename, file_size=file_size)
+
+            # Create document record
+            document = Document(
+                candidate_id=candidate.id,
+                upload_batch_id=batch.id,
+                original_filename=file.filename,
+                stored_filename=stored_name,
+                file_path=str(file_path),
+                file_size_bytes=file_size,
+                mime_type=detected_mime,
+                processing_status=ProcessingStatus.UPLOADED.value,
+                correlation_id=correlation_id,
             )
+            db.add(document)
+            await db.flush()
 
-        # Validate using streamed header bytes and total size
-        try:
-            detected_mime = validate_file_content(header_bytes + b"\x00" * max(0, 2048 - len(header_bytes)), file.filename, file_size=file_size)
-        except HTTPException:
-            file_path.unlink(missing_ok=True)
-            raise
+            document_records.append({
+                "id": document.id,
+                "filename": file.filename,
+                "size_bytes": file_size,
+                "mime_type": detected_mime,
+                "status": ProcessingStatus.UPLOADED.value,
+            })
 
-        # Create document record
-        document = Document(
-            candidate_id=candidate.id,
-            upload_batch_id=batch.id,
-            original_filename=file.filename,
-            stored_filename=stored_name,
-            file_path=str(file_path),
-            file_size_bytes=file_size,
-            mime_type=detected_mime,
-            processing_status=ProcessingStatus.UPLOADED.value,
-            correlation_id=correlation_id,
-        )
-        db.add(document)
-        await db.flush()
-
-        document_records.append({
-            "id": document.id,
-            "filename": file.filename,
-            "size_bytes": file_size,
-            "mime_type": detected_mime,
-            "status": ProcessingStatus.UPLOADED.value,
-        })
-
-        # Audit log
-        await audit.log(
-            correlation_id=correlation_id,
-            action=AuditAction.UPLOAD.value,
-            message=f"File uploaded: {sanitize_filename(file.filename)} ({file_size} bytes)",
-            candidate_id=candidate.id,
-            document_id=document.id,
-            processing_stage="upload",
-            details={"mime_type": detected_mime, "size_bytes": file_size},
-            ip_address=request.client.host if request.client else None,
-            user_agent=request.headers.get("user-agent", "")[:200],
-        )
+            # Audit log
+            await audit.log(
+                correlation_id=correlation_id,
+                action=AuditAction.UPLOAD.value,
+                message=f"File uploaded: {sanitize_filename(file.filename)} ({file_size} bytes)",
+                candidate_id=candidate.id,
+                document_id=document.id,
+                processing_stage="upload",
+                details={"mime_type": detected_mime, "size_bytes": file_size},
+                ip_address=request.client.host if request.client else None,
+                user_agent=request.headers.get("user-agent", "")[:200],
+            )
+    except HTTPException:
+        # Clean up all files written during this upload attempt
+        for fp in written_files:
+            fp.unlink(missing_ok=True)
+        raise
 
     await db.commit()
 

@@ -16,7 +16,9 @@ from app.models.enums import ProcessingStatus, AuditAction
 from app.services.validation.ownership import OwnershipValidator
 from app.services.processing.stages.context import PipelineContext
 from app.services.audit.logger import AuditService
+from app.core.config import settings
 from app.core.logging import get_logger
+from app.services.ai.openai_validator import OpenAIOwnershipResult
 
 logger = get_logger("processing.stages.validation")
 
@@ -48,7 +50,11 @@ class ValidationStage:
             processing_stage="validation",
         )
 
-        await self._validate_ownership(document, classification, correlation_id)
+        # If the document was split into children, validate each child separately
+        if ctx.is_split and ctx.child_document_ids:
+            await self._validate_child_documents(ctx)
+        else:
+            await self._validate_ownership(document, classification, correlation_id)
 
         logger.info("stage_complete", stage="validation", document_id=document_id)
         document.processing_status = ProcessingStatus.VALIDATION_COMPLETE.value
@@ -61,6 +67,43 @@ class ValidationStage:
             document_id=document_id,
             processing_stage="validation",
         )
+
+    async def _validate_child_documents(self, ctx: PipelineContext) -> None:
+        """Validate ownership for each child document independently."""
+        correlation_id = ctx.correlation_id
+
+        for child_id in ctx.child_document_ids:
+            # Load child document
+            result = await self.db.execute(
+                select(Document).where(Document.id == child_id)
+            )
+            child_doc = result.scalar_one_or_none()
+            if not child_doc:
+                continue
+
+            # Get the full-doc classification for this child
+            cls_result = await self.db.execute(
+                select(AIClassification).where(
+                    AIClassification.document_id == child_id,
+                    AIClassification.page_id == None,
+                ).order_by(AIClassification.confidence_score.desc())
+            )
+            child_classification = cls_result.scalar_one_or_none()
+
+            child_doc.processing_status = ProcessingStatus.VALIDATING.value
+            await self.db.flush()
+
+            logger.info(
+                "validating_child_document",
+                child_id=child_id,
+                parent_id=ctx.document_id,
+                doc_type=child_classification.document_type if child_classification else "unknown",
+            )
+
+            await self._validate_ownership(child_doc, child_classification, correlation_id)
+
+            child_doc.processing_status = ProcessingStatus.VALIDATION_COMPLETE.value
+            await self.db.flush()
 
     async def _validate_ownership(
         self, document: Document, classification: Optional[AIClassification], correlation_id: str
@@ -166,6 +209,7 @@ class ValidationStage:
 
         validation_result = best_result
 
+
         # === OpenAI FALLBACK (Level 3) ===
         # Only triggers if existing validation failed and feature is enabled
         openai_used = False
@@ -260,6 +304,7 @@ class ValidationStage:
                     )
 
         # === END: OpenAI FALLBACK ===
+        
         logger.info(
             "ownership_best_match",
             document_id=document.id,
@@ -307,6 +352,7 @@ class ValidationStage:
             openai_extracted_owner_dob=openai_result.extracted_owner_dob if openai_result else None,
             openai_name_match_score=openai_result.name_match_score if openai_result else None,
             openai_error=openai_result.error if openai_result else None,
+            
             correlation_id=correlation_id,
         )
         self.db.add(validation_record)
@@ -327,7 +373,8 @@ class ValidationStage:
                 "best_source_page_id": best_classification.page_id if best_classification else None,
             },
         )
-
+        
+        
     def _should_trigger_openai_fallback(
         self,
         validation_result,
@@ -548,3 +595,4 @@ class ValidationStage:
                 manual_review_reasons=enhanced_manual_reasons,
                 processing_duration_ms=rule_based.processing_duration_ms,
             )
+        

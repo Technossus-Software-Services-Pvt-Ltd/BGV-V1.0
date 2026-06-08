@@ -18,7 +18,6 @@ from app.services.integrations.drive_service import GoogleDriveService, Discover
 from app.services.audit.logger import AuditService
 from app.core.config import settings
 from app.core.logging import get_logger
-from app.core.config import settings
 
 logger = get_logger("batch.ingest")
 

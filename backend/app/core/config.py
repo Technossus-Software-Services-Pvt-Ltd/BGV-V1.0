@@ -59,6 +59,17 @@ class Settings(BaseSettings):
 
     ai_timeout_seconds: int = 120
 
+    openai_api_key: str = ""
+    openai_model: str = "gpt-4o-mini"
+    openai_enabled: bool = False
+    openai_max_retries: int = 2
+    openai_timeout_seconds: int = 30
+
+    # OpenAI Fallback Thresholds
+    openai_fallback_min_ocr_confidence: float = 0.3
+    openai_fallback_min_classification_confidence: float = 0.5
+    openai_fallback_max_ownership_score: float = 80.0
+
     # Upload limits
     max_files_per_upload: int = 20
 
@@ -86,6 +97,12 @@ class Settings(BaseSettings):
 
     # Dashboard
     dashboard_cache_ttl_seconds: int = 30
+
+    # Session cookie
+    session_cookie_name: str = "bgv_session"
+    session_cookie_secure: bool = False  # Set True in production (HTTPS only)
+    session_cookie_samesite: str = "lax"  # "strict" for highest security; "lax" allows OAuth redirects
+    session_cookie_domain: str = ""  # Empty = current domain only
 
     @model_validator(mode="after")
     def _validate_required_settings(self) -> "Settings":

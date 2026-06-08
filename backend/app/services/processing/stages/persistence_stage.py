@@ -5,6 +5,7 @@ import time
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+from app.models.document import Document
 from app.models.upload_batch import UploadBatch
 from app.models.enums import ProcessingStatus, AuditAction
 from app.services.processing.stages.context import PipelineContext
@@ -30,7 +31,17 @@ class PersistenceStage:
         document.processing_status = ProcessingStatus.COMPLETED.value
         total_duration = int((time.time() - start_time) * 1000)
 
-        logger.info("pipeline_complete", document_id=document_id, total_duration_ms=total_duration)
+        # If split, also mark child documents as completed
+        if ctx.is_split and ctx.child_document_ids:
+            for child_id in ctx.child_document_ids:
+                result = await self.db.execute(
+                    select(Document).where(Document.id == child_id)
+                )
+                child_doc = result.scalar_one_or_none()
+                if child_doc:
+                    child_doc.processing_status = ProcessingStatus.COMPLETED.value
+
+        logger.info("pipeline_complete", document_id=document_id, total_duration_ms=total_duration, is_split=ctx.is_split, child_count=len(ctx.child_document_ids))
         await self.audit.log(
             correlation_id=correlation_id,
             action=AuditAction.PROCESSING_COMPLETE.value,

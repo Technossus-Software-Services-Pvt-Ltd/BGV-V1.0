@@ -1,4 +1,3 @@
-import asyncio
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -90,29 +89,23 @@ async def get_document_detail(
     if not document:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
 
-    # Parallel queries for related data (independent, no ordering dependency)
-    cand_coro = db.execute(select(Candidate).where(Candidate.id == document.candidate_id)) if document.candidate_id else None
-    pages_coro = db.execute(
+    # Sequential queries on same session (AsyncSession is NOT safe for concurrent use)
+    pages_result = await db.execute(
         select(DocumentPage).where(DocumentPage.document_id == document_id).order_by(DocumentPage.page_number)
     )
-    ocr_coro = db.execute(select(OCRResult).where(OCRResult.document_id == document_id))
-    class_coro = db.execute(select(AIClassification).where(AIClassification.document_id == document_id))
-    val_coro = db.execute(select(ValidationResult).where(ValidationResult.document_id == document_id))
+    ocr_result = await db.execute(select(OCRResult).where(OCRResult.document_id == document_id))
+    class_result = await db.execute(select(AIClassification).where(AIClassification.document_id == document_id))
+    val_result = await db.execute(select(ValidationResult).where(ValidationResult.document_id == document_id))
 
-    coros = [pages_coro, ocr_coro, class_coro, val_coro]
-    if cand_coro:
-        coros.append(cand_coro)
-
-    results = await asyncio.gather(*coros)
-
-    pages = results[0].scalars().all()
-    ocr_results = results[1].scalars().all()
-    classifications = results[2].scalars().all()
-    validation_results = results[3].scalars().all()
+    pages = pages_result.scalars().all()
+    ocr_results = ocr_result.scalars().all()
+    classifications = class_result.scalars().all()
+    validation_results = val_result.scalars().all()
 
     candidate_name = None
-    if cand_coro and len(results) > 4:
-        candidate = results[4].scalar_one_or_none()
+    if document.candidate_id:
+        cand_result = await db.execute(select(Candidate).where(Candidate.id == document.candidate_id))
+        candidate = cand_result.scalar_one_or_none()
         if candidate:
             candidate_name = candidate.name
 

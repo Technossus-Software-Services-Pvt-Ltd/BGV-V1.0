@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import json
 import re
@@ -158,3 +159,26 @@ class GmailScanner:
         )
         data = result.get("data", "")
         return base64.urlsafe_b64decode(data)
+
+    # ─── Async wrappers (run blocking Google API calls in thread pool) ────
+
+    async def search_for_candidate_async(
+        self,
+        candidate_name: str,
+        candidate_email: Optional[str] = None,
+        max_results: int = 50,
+    ) -> List[DiscoveredAttachment]:
+        """Async wrapper for search_for_candidate."""
+        from app.services.batch.ingest_service import _io_executor
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            _io_executor, self.search_for_candidate, candidate_name, candidate_email, max_results
+        )
+
+    async def download_attachment_async(self, message_id: str, attachment_id: str) -> bytes:
+        """Async wrapper for download_attachment."""
+        from app.services.batch.ingest_service import _io_executor
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            _io_executor, self.download_attachment, message_id, attachment_id
+        )

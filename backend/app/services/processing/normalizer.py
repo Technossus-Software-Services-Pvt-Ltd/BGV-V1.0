@@ -37,8 +37,12 @@ class DocumentNormalizer:
             return [page_path]
 
     def count_pdf_pages(self, file_path: Path) -> int:
-        import fitz
-        doc = fitz.open(str(file_path))
-        count = len(doc)
-        doc.close()
-        return count
+        try:
+            import fitz
+            doc = fitz.open(str(file_path))
+            count = len(doc)
+            doc.close()
+            return count
+        except Exception as e:
+            logger.warning("count_pdf_pages_failed", path=str(file_path), error=str(e))
+            return 0

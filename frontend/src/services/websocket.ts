@@ -1,4 +1,4 @@
-import { getSessionToken } from '../utils/auth';
+import api from '../api/client';
 
 export type WebSocketEvent =
   | 'processing-log'
@@ -17,6 +17,10 @@ type EventHandler = (data: Record<string, unknown>) => void;
 /**
  * WebSocket service for real-time batch processing updates.
  * Handles connection, reconnection, heartbeat, and event dispatching.
+ *
+ * Authentication uses the ticket-based flow:
+ * 1. POST /api/v1/ws/ticket (cookie sent automatically) → returns {ticket}
+ * 2. Send {"type": "auth", "token": ticket} as first WebSocket message
  */
 export class BatchWebSocketService {
   private ws: WebSocket | null = null;
@@ -60,9 +64,19 @@ export class BatchWebSocketService {
     return this.ws?.readyState === WebSocket.OPEN;
   }
 
-  private _connect(): void {
-    const token = getSessionToken();
-    if (!token || !this.batchId) return;
+  private async _connect(): Promise<void> {
+    if (!this.batchId) return;
+
+    // Acquire a short-lived single-use ticket via authenticated HTTP endpoint
+    let ticket: string;
+    try {
+      const response = await api.post<{ ticket: string }>('/ws/ticket');
+      ticket = response.data.ticket;
+    } catch {
+      // If ticket acquisition fails (e.g. session expired), schedule reconnect
+      this._scheduleReconnect();
+      return;
+    }
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
@@ -72,8 +86,8 @@ export class BatchWebSocketService {
       this.ws = new WebSocket(url);
 
       this.ws.onopen = () => {
-        // Authenticate via first message (token never exposed in URL)
-        this.ws?.send(JSON.stringify({ type: 'auth', token }));
+        // Authenticate via first message using the single-use ticket
+        this.ws?.send(JSON.stringify({ type: 'auth', token: ticket }));
         this.reconnectAttempts = 0;
         this._startHeartbeat();
         this._emit('connected', {});
