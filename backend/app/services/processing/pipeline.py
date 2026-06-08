@@ -29,6 +29,7 @@ from app.services.processing.stages.context import PipelineContext
 from app.services.processing.stages.normalization_stage import NormalizationStage
 from app.services.processing.stages.ocr_stage import OCRStage
 from app.services.processing.stages.classification_stage import ClassificationStage
+from app.services.processing.stages.splitting_stage import SplittingStage
 from app.services.processing.stages.validation_stage import ValidationStage
 from app.services.processing.stages.persistence_stage import PersistenceStage
 
@@ -83,6 +84,7 @@ class ProcessingPipeline:
         self._normalization_stage = NormalizationStage(db, self.normalizer, self.audit)
         self._ocr_stage = OCRStage(db, self.ocr_engine, self.preprocessor, self.audit)
         self._classification_stage = ClassificationStage(db, self.ai_classifier, self.audit)
+        self._splitting_stage = SplittingStage(db, self.splitter, self.audit)
         self._validation_stage = ValidationStage(db, self.ownership_validator, self.audit)
         self._persistence_stage = PersistenceStage(db, self.audit)
 
@@ -120,10 +122,13 @@ class ProcessingPipeline:
             # Stage 3: AI Classification
             await self._classification_stage.execute(ctx)
 
-            # Stage 4: Ownership Validation
+            # Stage 4: Document Splitting (creates child docs if multi-type PDF)
+            await self._splitting_stage.execute(ctx)
+
+            # Stage 5: Ownership Validation (validates each child doc separately if split)
             await self._validation_stage.execute(ctx)
 
-            # Stage 5: Final persistence
+            # Stage 6: Final persistence
             await self._persistence_stage.execute(ctx, start_time)
 
         except Exception as e:

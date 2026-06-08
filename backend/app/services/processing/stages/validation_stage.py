@@ -49,7 +49,11 @@ class ValidationStage:
             processing_stage="validation",
         )
 
-        await self._validate_ownership(document, classification, correlation_id)
+        # If the document was split into children, validate each child separately
+        if ctx.is_split and ctx.child_document_ids:
+            await self._validate_child_documents(ctx)
+        else:
+            await self._validate_ownership(document, classification, correlation_id)
 
         logger.info("stage_complete", stage="validation", document_id=document_id)
         document.processing_status = ProcessingStatus.VALIDATION_COMPLETE.value
@@ -62,6 +66,43 @@ class ValidationStage:
             document_id=document_id,
             processing_stage="validation",
         )
+
+    async def _validate_child_documents(self, ctx: PipelineContext) -> None:
+        """Validate ownership for each child document independently."""
+        correlation_id = ctx.correlation_id
+
+        for child_id in ctx.child_document_ids:
+            # Load child document
+            result = await self.db.execute(
+                select(Document).where(Document.id == child_id)
+            )
+            child_doc = result.scalar_one_or_none()
+            if not child_doc:
+                continue
+
+            # Get the full-doc classification for this child
+            cls_result = await self.db.execute(
+                select(AIClassification).where(
+                    AIClassification.document_id == child_id,
+                    AIClassification.page_id == None,
+                ).order_by(AIClassification.confidence_score.desc())
+            )
+            child_classification = cls_result.scalar_one_or_none()
+
+            child_doc.processing_status = ProcessingStatus.VALIDATING.value
+            await self.db.flush()
+
+            logger.info(
+                "validating_child_document",
+                child_id=child_id,
+                parent_id=ctx.document_id,
+                doc_type=child_classification.document_type if child_classification else "unknown",
+            )
+
+            await self._validate_ownership(child_doc, child_classification, correlation_id)
+
+            child_doc.processing_status = ProcessingStatus.VALIDATION_COMPLETE.value
+            await self.db.flush()
 
     async def _validate_ownership(
         self, document: Document, classification: Optional[AIClassification], correlation_id: str

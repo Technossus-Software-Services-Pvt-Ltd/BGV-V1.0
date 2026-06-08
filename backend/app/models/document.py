@@ -12,6 +12,7 @@ class Document(Base):
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     candidate_id = Column(String(36), ForeignKey("candidates.id"), nullable=False, index=True)
     upload_batch_id = Column(String(36), ForeignKey("upload_batches.id"), nullable=False, index=True)
+    parent_document_id = Column(String(36), ForeignKey("documents.id"), nullable=True, index=True)
     original_filename = Column(String(255), nullable=False)
     stored_filename = Column(String(255), nullable=False, unique=True)
     file_path = Column(String(500), nullable=False)
@@ -28,6 +29,8 @@ class Document(Base):
     # Relationships
     candidate = relationship("Candidate", back_populates="documents")
     upload_batch = relationship("UploadBatch", back_populates="documents")
+    parent_document = relationship("Document", remote_side="Document.id", back_populates="child_documents", foreign_keys=[parent_document_id])
+    child_documents = relationship("Document", back_populates="parent_document", foreign_keys=[parent_document_id])
     pages = relationship("DocumentPage", back_populates="document", lazy="noload", order_by="DocumentPage.page_number")
     ocr_results = relationship("OCRResult", back_populates="document", lazy="noload")
     classifications = relationship("AIClassification", back_populates="document", lazy="noload")

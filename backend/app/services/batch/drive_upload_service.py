@@ -58,12 +58,15 @@ class DriveUploadService:
 
                 # Resolve file name from the configured pattern
                 doc_type = await self._get_document_type(doc_id)
+                # Strip any [doctype] suffix from original_filename (added by splitting stage)
+                import re
+                clean_filename = re.sub(r'\s*\[.*?\]\s*$', '', doc.original_filename)
                 resolved_filename = FileNamingRuleService.resolve_file_name(
                     naming_rule.file_rename_pattern,
                     bc.source_candidate_id,
                     bc.source_name,
                     doc_type,
-                    doc.original_filename,
+                    clean_filename,
                 )
 
                 file_bytes = Path(doc.file_path).read_bytes()

@@ -6,7 +6,7 @@ from typing import Optional, List
 from app.models.document import Document, DocumentPage
 from app.models.ocr_result import OCRResult
 from app.models.classification import AIClassification
-from app.services.processing.splitter import PageClassification
+from app.services.processing.splitter import PageClassification, DocumentGroup
 
 
 @dataclass
@@ -35,6 +35,11 @@ class PipelineContext:
     # Classification outputs
     page_classifications: List[PageClassification] = field(default_factory=list)
     full_classification: Optional[AIClassification] = None
+
+    # Splitting outputs (child documents created from multi-doc PDF)
+    document_groups: List[DocumentGroup] = field(default_factory=list)
+    child_document_ids: List[str] = field(default_factory=list)
+    is_split: bool = False
 
     # Pipeline control
     should_stop: bool = False
