@@ -3,6 +3,7 @@
 import json
 from typing import Optional
 
+from app.services.ai.openai_validator import OpenAIOwnershipResult
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
