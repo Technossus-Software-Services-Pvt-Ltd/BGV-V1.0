@@ -34,7 +34,7 @@ class BatchStatusService:
         message: str,
         details: Optional[str] = None,
     ) -> None:
-        """Write a batch log entry and emit via WebSocket."""
+        """Write a batch log entry and emit via WebSocket + Redis Pub/Sub."""
         log_entry = BatchLog(
             batch_import_id=batch_import_id,
             batch_candidate_id=batch_candidate_id,
@@ -47,27 +47,48 @@ class BatchStatusService:
         await self.db.flush()
         logger.info("batch_log", batch_id=batch_import_id, level=level, stage=stage, message=message)
 
-        await self._ws_hub.emit_processing_log(
-            batch_id=batch_import_id,
-            log_id=log_entry.id,
-            batch_candidate_id=batch_candidate_id,
-            level=level,
-            stage=stage,
-            message=message,
-            details=details,
-        )
+        # Publish to Redis Pub/Sub for SSE subscribers
+        try:
+            from app.services.pubsub import publish_batch_event
+            await publish_batch_event(batch_import_id, {
+                "id": log_entry.id,
+                "level": level,
+                "stage": stage,
+                "message": message,
+                "details": details,
+                "batch_candidate_id": batch_candidate_id,
+                "created_at": log_entry.created_at.isoformat() if log_entry.created_at else None,
+            })
+        except Exception as e:
+            logger.warning("pubsub_emit_log_failed", batch_id=batch_import_id, error=str(e))
+
+        try:
+            await self._ws_hub.emit_processing_log(
+                batch_id=batch_import_id,
+                log_id=log_entry.id,
+                batch_candidate_id=batch_candidate_id,
+                level=level,
+                stage=stage,
+                message=message,
+                details=details,
+            )
+        except Exception as e:
+            logger.warning("ws_emit_log_failed", batch_id=batch_import_id, error=str(e))
 
     async def emit_candidate_status(self, batch_id: str, bc: BatchImportCandidate) -> None:
         """Emit candidate status change via WebSocket."""
-        await self._ws_hub.emit_candidate_status(
-            batch_id=batch_id,
-            candidate_id=bc.id,
-            status=bc.status,
-            documents_found=bc.documents_found or 0,
-            documents_processed=bc.documents_processed or 0,
-            documents_failed=bc.documents_failed or 0,
-            error_message=bc.error_message,
-        )
+        try:
+            await self._ws_hub.emit_candidate_status(
+                batch_id=batch_id,
+                candidate_id=bc.id,
+                status=bc.status,
+                documents_found=bc.documents_found or 0,
+                documents_processed=bc.documents_processed or 0,
+                documents_failed=bc.documents_failed or 0,
+                error_message=bc.error_message,
+            )
+        except Exception as e:
+            logger.warning("ws_emit_candidate_failed", batch_id=batch_id, error=str(e))
 
     async def emit_summary(self, batch: BatchImport) -> None:
         """Emit processing summary counts via WebSocket."""
@@ -93,17 +114,20 @@ class BatchStatusService:
         pending = sum(1 for c in candidates if c.status == BatchCandidateStatus.PENDING.value)
         no_documents = sum(1 for c in candidates if c.status == BatchCandidateStatus.NO_DOCUMENTS.value)
 
-        await self._ws_hub.emit_processing_summary(
-            batch_id=batch.id,
-            total=batch.total_candidates or len(candidates),
-            completed=completed,
-            failed=failed,
-            in_progress=in_progress,
-            partial=partial,
-            pending=pending,
-            no_documents=no_documents,
-            batch_status=batch.status,
-        )
+        try:
+            await self._ws_hub.emit_processing_summary(
+                batch_id=batch.id,
+                total=batch.total_candidates or len(candidates),
+                completed=completed,
+                failed=failed,
+                in_progress=in_progress,
+                partial=partial,
+                pending=pending,
+                no_documents=no_documents,
+                batch_status=batch.status,
+            )
+        except Exception as e:
+            logger.warning("ws_emit_summary_failed", batch_id=batch.id, error=str(e))
 
     async def update_batch_totals(self, batch: BatchImport) -> None:
         """Recompute batch-level totals from candidate statuses."""

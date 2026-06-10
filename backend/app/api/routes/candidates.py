@@ -7,6 +7,7 @@ from app.api.deps import get_current_user
 from app.models.auth_user import AuthUser
 from app.models.candidate import Candidate
 from app.schemas.candidate import CandidateCreate, CandidateResponse, CandidateListResponse
+from app.services.cache import cache_service
 
 router = APIRouter()
 
@@ -37,6 +38,10 @@ async def create_candidate(
     db.add(candidate)
     await db.commit()
     await db.refresh(candidate)
+
+    # Invalidate candidate list cache
+    await cache_service.delete_pattern("candidates:list:*")
+
     return candidate
 
 
@@ -47,6 +52,12 @@ async def list_candidates(
     db: AsyncSession = Depends(get_db),
     _current_user: AuthUser = Depends(get_current_user),
 ):
+    # Try cache first
+    cache_key = f"candidates:list:{skip}:{limit}"
+    cached = await cache_service.get(cache_key)
+    if cached is not None:
+        return cached
+
     result = await db.execute(
         select(Candidate).order_by(Candidate.created_at.desc()).offset(skip).limit(limit)
     )
@@ -55,7 +66,13 @@ async def list_candidates(
     count_result = await db.execute(select(func.count(Candidate.id)))
     total = count_result.scalar()
 
-    return CandidateListResponse(candidates=candidates, total=total)
+    response = CandidateListResponse(candidates=candidates, total=total)
+    response_data = response.model_dump(mode="json")
+
+    # Cache for 60 seconds
+    await cache_service.set(cache_key, response_data, ttl_seconds=60)
+
+    return response
 
 
 @router.get("/candidates/{candidate_id}", response_model=CandidateResponse)

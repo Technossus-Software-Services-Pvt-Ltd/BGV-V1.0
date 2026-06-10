@@ -119,6 +119,36 @@ class TestAIClassifier:
         result = await classifier.extract_ownership("", "pan_card")
         assert result.error == "No OCR text provided"
 
+    @pytest.mark.asyncio
+    async def test_classify_uses_zero_temperature(self):
+        """Verify classification uses temperature=0.0 for deterministic output."""
+        mock_client = AsyncMock()
+        mock_client.generate = AsyncMock(return_value=OllamaResponse(
+            content='{"document_type": "pan_card", "confidence": 0.9, "reasoning": "test"}',
+            model="llama3",
+            duration_ms=100,
+        ))
+        classifier = AIClassifier(client=mock_client)
+        await classifier.classify_document("Some text with enough words for classification", 0.9, 8)
+        mock_client.generate.assert_called_once()
+        call_kwargs = mock_client.generate.call_args
+        assert call_kwargs[1]["temperature"] == 0.0 or call_kwargs[0][1] == 0.0
+
+    @pytest.mark.asyncio
+    async def test_extract_ownership_uses_zero_temperature(self):
+        """Verify ownership extraction uses temperature=0.0 for deterministic output."""
+        mock_client = AsyncMock()
+        mock_client.generate = AsyncMock(return_value=OllamaResponse(
+            content='{"holder_name": "Test", "confidence": 0.8}',
+            model="llama3",
+            duration_ms=100,
+        ))
+        classifier = AIClassifier(client=mock_client)
+        await classifier.extract_ownership("Some OCR text for ownership", "pan_card")
+        mock_client.generate.assert_called_once()
+        call_kwargs = mock_client.generate.call_args
+        assert call_kwargs[1]["temperature"] == 0.0 or call_kwargs[0][1] == 0.0
+
 
 class TestOllamaClient:
     @pytest.mark.asyncio

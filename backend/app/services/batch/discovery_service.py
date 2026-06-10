@@ -1,7 +1,6 @@
 """Service responsible for discovering candidate documents from Gmail and Google Drive."""
 
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,13 +10,11 @@ from app.models.integration_config import IntegrationConfig
 from app.models.enums import IntegrationProvider
 from app.services.integrations.gmail_scanner import GmailScanner, DiscoveredAttachment
 from app.services.integrations.drive_service import GoogleDriveService, DiscoveredDriveFile
+from app.services.integrations.executor import google_io_executor as _io_executor
 from app.core.logging import get_logger
 from app.core.config import settings
 
 logger = get_logger("batch.discovery")
-
-# Dedicated thread pool for blocking Google API I/O calls
-_io_executor = ThreadPoolExecutor(max_workers=settings.google_io_pool_size, thread_name_prefix="google-io")
 
 
 class DiscoveryService:

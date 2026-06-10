@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { getBatchDetail, listDocuments } from '../api/endpoints';
+import { getBatchDetail, listBatchDocuments } from '../api/endpoints';
 import { BatchImport, BatchCandidate, DocumentListItem } from '../types';
 import StatusBadge from '../components/StatusBadge';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -24,32 +24,9 @@ export default function BatchDetailPage() {
       setBatch(detail.batch);
       setCandidates(detail.candidates);
 
-      // Fetch documents in parallel chunks to avoid flooding the backend
-      const candidateIds = detail.candidates
-        .map((c) => c.candidate_id)
-        .filter(Boolean) as string[];
-
-      if (candidateIds.length > 0) {
-        const CHUNK_SIZE = 5;
-        const chunks: string[][] = [];
-
-        for (let i = 0; i < candidateIds.length; i += CHUNK_SIZE) {
-          chunks.push(candidateIds.slice(i, i + CHUNK_SIZE));
-        }
-
-        const chunkResults = await Promise.all(
-          chunks.map((chunk) =>
-            Promise.all(
-              chunk.map((cid) => listDocuments({ candidate_id: cid, limit: 100 }))
-            )
-          )
-        );
-        const allDocs: DocumentListItem[] = chunkResults.flat(2);
-
-        setDocuments(allDocs);
-      } else {
-        setDocuments([]);
-      }
+      // Fetch documents for this batch via dedicated endpoint
+      const batchDocs = await listBatchDocuments(batchId);
+      setDocuments(batchDocs);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load batch details');
     } finally {
@@ -61,23 +38,18 @@ export default function BatchDetailPage() {
     loadData();
   }, [loadData]);
 
-  // Group documents by candidate — only include docs created after the batch started
+  // Group documents by candidate
   const candidateDocMap = useMemo(() => {
     const map = new Map<string, DocumentListItem[]>();
-    const batchCreatedAt = batch ? new Date(batch.created_at).getTime() : 0;
-    const candidateIds = new Set(candidates.map((c) => c.candidate_id).filter(Boolean));
     for (const doc of documents) {
-      if (doc.candidate_id && candidateIds.has(doc.candidate_id)) {
-        const docTime = new Date(doc.created_at).getTime();
-        if (docTime >= batchCreatedAt) {
-          const list = map.get(doc.candidate_id) || [];
-          list.push(doc);
-          map.set(doc.candidate_id, list);
-        }
+      if (doc.candidate_id) {
+        const list = map.get(doc.candidate_id) || [];
+        list.push(doc);
+        map.set(doc.candidate_id, list);
       }
     }
     return map;
-  }, [documents, batch, candidates]);
+  }, [documents]);
 
   const toggleCandidate = (candidateId: string) => {
     setExpandedCandidates((prev) => {

@@ -3,6 +3,7 @@ import { listBatchImports, getBatchLogs, getBatchDetail, BatchLogItem } from '..
 import { BatchImport, BatchCandidate } from '../types';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ErrorMessage from '../components/ErrorMessage';
+import { statusColor } from '../utils/formatting';
 
 export default function AuditPage() {
   const [batches, setBatches] = useState<BatchImport[]>([]);
@@ -195,16 +196,6 @@ function BatchListView({
   loading: boolean;
   onSelect: (b: BatchImport) => void;
 }) {
-  const statusColor = (s: string) => {
-    switch (s) {
-      case 'completed': return 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/10';
-      case 'completed_with_errors': return 'bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-600/10';
-      case 'failed': return 'bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-600/10';
-      case 'processing': return 'bg-sky-50 text-sky-700 ring-1 ring-inset ring-sky-600/10';
-      default: return 'bg-gray-50 text-gray-600 ring-1 ring-inset ring-gray-500/10';
-    }
-  };
-
   if (loading) {
     return <LoadingSpinner message="Loading batches..." />;
   }

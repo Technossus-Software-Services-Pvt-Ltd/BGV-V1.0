@@ -4,17 +4,20 @@ import { Candidate } from '../types';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ErrorMessage from '../components/ErrorMessage';
 
+const PAGE_SIZE = 25;
+
 export default function CandidatesPage() {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
 
   const loadCandidates = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await listCandidates({ limit: 100 });
+      const data = await listCandidates({ skip: page * PAGE_SIZE, limit: PAGE_SIZE });
       setCandidates(data.candidates);
       setTotal(data.total);
     } catch (err) {
@@ -22,13 +25,15 @@ export default function CandidatesPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [page]);
 
   useEffect(() => {
     loadCandidates();
   }, [loadCandidates]);
 
-  if (loading) return <LoadingSpinner message="Loading candidates..." />;
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+
+  if (loading && candidates.length === 0) return <LoadingSpinner message="Loading candidates..." />;
   if (error) return <ErrorMessage message={error} onRetry={loadCandidates} />;
 
   return (
@@ -77,6 +82,31 @@ export default function CandidatesPage() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-gray-500">
+            Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} of {total}
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              disabled={page === 0}
+              className="btn-secondary text-sm disabled:opacity-50"
+            >
+              Previous
+            </button>
+            <button
+              onClick={() => setPage((p) => p + 1)}
+              disabled={page >= totalPages - 1}
+              className="btn-secondary text-sm disabled:opacity-50"
+            >
+              Next
+            </button>
+          </div>
         </div>
       )}
     </div>

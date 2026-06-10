@@ -1,5 +1,6 @@
 """Validation stage: ownership verification using best-match strategy."""
 
+import asyncio
 import json
 from typing import Optional
 
@@ -18,7 +19,6 @@ from app.services.processing.stages.context import PipelineContext
 from app.services.audit.logger import AuditService
 from app.core.config import settings
 from app.core.logging import get_logger
-from app.services.ai.openai_validator import OpenAIOwnershipResult
 
 logger = get_logger("processing.stages.validation")
 
@@ -246,19 +246,22 @@ class ValidationStage:
                             except (json.JSONDecodeError, TypeError):
                                 pass
 
-                    openai_result = await openai_validator.validate(
-                        candidate_name=candidate.name,
-                        candidate_dob=candidate.dob,
-                        candidate_gender=candidate.gender,
-                        document_type=best_classification.document_type if best_classification else "unknown",
-                        ocr_text=combined_ocr_text,
-                        extracted_name=best_classification.extracted_name if best_classification else None,
-                        extracted_dob=best_classification.extracted_dob if best_classification else None,
-                        extracted_gender=extracted_gender,
-                        rule_based_score=validation_result.ownership_score,
-                        rule_based_reasoning=validation_result.reasoning,
-                        document_file_path=document.file_path,
-                        document_mime_type=document.mime_type,
+                    openai_result = await asyncio.wait_for(
+                        openai_validator.validate(
+                            candidate_name=candidate.name,
+                            candidate_dob=candidate.dob,
+                            candidate_gender=candidate.gender,
+                            document_type=best_classification.document_type if best_classification else "unknown",
+                            ocr_text=combined_ocr_text,
+                            extracted_name=best_classification.extracted_name if best_classification else None,
+                            extracted_dob=best_classification.extracted_dob if best_classification else None,
+                            extracted_gender=extracted_gender,
+                            rule_based_score=validation_result.ownership_score,
+                            rule_based_reasoning=validation_result.reasoning,
+                            document_file_path=document.file_path,
+                            document_mime_type=document.mime_type,
+                        ),
+                        timeout=settings.openai_timeout_seconds + 10,
                     )
 
                     openai_used = True

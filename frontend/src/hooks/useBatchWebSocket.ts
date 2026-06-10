@@ -103,6 +103,14 @@ export function useBatchWebSocket(batchId: string | null): UseBatchWebSocketRetu
     });
   }, []);
 
+  // Use refs so useEffect doesn't reconnect when handlers get new identities
+  const handleLogRef = useRef(handleLog);
+  handleLogRef.current = handleLog;
+  const handleCandidateStatusRef = useRef(handleCandidateStatus);
+  handleCandidateStatusRef.current = handleCandidateStatus;
+  const handleSummaryRef = useRef(handleSummary);
+  handleSummaryRef.current = handleSummary;
+
   useEffect(() => {
     if (!batchId) {
       // No batch to track — cleanup if needed
@@ -124,9 +132,9 @@ export function useBatchWebSocket(batchId: string | null): UseBatchWebSocketRetu
 
     ws.on('connected', () => setConnected(true));
     ws.on('disconnected', () => setConnected(false));
-    ws.on('processing-log', handleLog);
-    ws.on('candidate-status-updated', handleCandidateStatus);
-    ws.on('processing-summary-updated', handleSummary);
+    ws.on('processing-log', (data: Record<string, unknown>) => handleLogRef.current(data));
+    ws.on('candidate-status-updated', (data: Record<string, unknown>) => handleCandidateStatusRef.current(data));
+    ws.on('processing-summary-updated', (data: Record<string, unknown>) => handleSummaryRef.current(data));
 
     ws.connect(batchId);
 
@@ -139,7 +147,8 @@ export function useBatchWebSocket(batchId: string | null): UseBatchWebSocketRetu
         flushTimerRef.current = null;
       }
     };
-  }, [batchId, handleLog, handleCandidateStatus, handleSummary]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batchId]);
 
   return { logs, candidateUpdates, summary, connected };
 }

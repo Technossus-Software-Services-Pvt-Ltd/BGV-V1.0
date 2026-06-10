@@ -1,5 +1,6 @@
 """Tests for BatchOrchestrator, DiscoveryService, IngestService, DriveUploadService."""
 
+from pathlib import Path
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -230,6 +231,10 @@ class TestDocumentIngestServiceInit:
         # Document was added to db and flushed
         db.add.assert_called()
         db.flush.assert_called()
+        saved_document = db.add.call_args.args[0]
+        saved_path = Path(saved_document.file_path)
+        assert saved_path.parts[0] == "corr-1"
+        assert "uploads" not in saved_path.parts
 
 
 class TestDriveUploadServiceInit:

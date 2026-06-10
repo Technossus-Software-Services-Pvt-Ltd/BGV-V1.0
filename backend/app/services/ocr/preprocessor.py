@@ -1,8 +1,9 @@
 import numpy as np
 from pathlib import Path
-from PIL import Image, ImageFilter, ImageEnhance
+from PIL import Image, ImageFilter, ImageEnhance, ImageOps
 import fitz  # PyMuPDF
 
+from app.core.config import settings
 from app.core.logging import get_logger
 
 logger = get_logger("ocr.preprocessor")
@@ -13,26 +14,59 @@ class DocumentPreprocessor:
 
     SUPPORTED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
     TARGET_DPI = 300
-    MAX_DIMENSION = 4096
+    MAX_DIMENSION = settings.ocr_max_dimension
 
     def extract_pages_from_pdf(self, pdf_path: Path, output_dir: Path) -> list[Path]:
         logger.info("pdf_extraction_start", pdf_path=str(pdf_path))
         page_paths = []
         doc = fitz.open(str(pdf_path))
 
-        for page_num in range(len(doc)):
+        # Detect encrypted/password-protected PDFs
+        if doc.is_encrypted:
+            doc.close()
+            raise ValueError(f"PDF is encrypted/password-protected and cannot be processed: {pdf_path.name}")
+
+        total_pages = len(doc)
+        max_pages = settings.max_pdf_pages
+        pages_to_extract = min(total_pages, max_pages)
+
+        if total_pages > max_pages:
+            logger.warning(
+                "pdf_page_limit_applied",
+                pdf_path=str(pdf_path),
+                total_pages=total_pages,
+                max_pages=max_pages,
+            )
+
+        for page_num in range(pages_to_extract):
             page = doc[page_num]
             # Render at 300 DPI for OCR quality
             zoom = self.TARGET_DPI / 72
             matrix = fitz.Matrix(zoom, zoom)
             pixmap = page.get_pixmap(matrix=matrix)
 
+            # PDF bomb protection: reject pages with excessive pixel dimensions
+            max_pixels = 10000
+            if pixmap.width > max_pixels or pixmap.height > max_pixels:
+                logger.warning(
+                    "pdf_page_dimension_exceeded",
+                    page_num=page_num + 1,
+                    width=pixmap.width,
+                    height=pixmap.height,
+                    max_pixels=max_pixels,
+                )
+                raise ValueError(
+                    f"PDF page {page_num + 1} exceeds maximum dimensions "
+                    f"({pixmap.width}x{pixmap.height} > {max_pixels}x{max_pixels}). "
+                    f"Possible decompression bomb."
+                )
+
             output_path = output_dir / f"page_{page_num + 1:04d}.png"
             pixmap.save(str(output_path))
             page_paths.append(output_path)
 
         doc.close()
-        logger.info("pdf_extraction_complete", page_count=len(page_paths))
+        logger.info("pdf_extraction_complete", page_count=len(page_paths), total_in_pdf=total_pages)
         return page_paths
 
     def normalize_image(self, image_path: Path) -> tuple[np.ndarray, dict]:
@@ -124,3 +158,25 @@ class DocumentPreprocessor:
 
         white_ratio = np.mean(gray > 240) 
         return white_ratio > threshold
+
+    def enhance_aggressive(self, img_array: np.ndarray) -> np.ndarray:
+        """Aggressive preprocessing for low-confidence OCR retry: binarize + high contrast."""
+        img = Image.fromarray(img_array)
+
+        # Convert to grayscale for Otsu-style binarization
+        gray = ImageOps.grayscale(img)
+
+        # Auto-contrast to maximize dynamic range
+        gray = ImageOps.autocontrast(gray, cutoff=1)
+
+        # Binarize using adaptive threshold (Otsu approximation via quantize)
+        threshold = 128
+        binary = gray.point(lambda p: 255 if p > threshold else 0, mode="1")
+
+        # Convert back to RGB for PaddleOCR
+        result = binary.convert("RGB")
+
+        # Light sharpen
+        result = result.filter(ImageFilter.SHARPEN)
+
+        return np.array(result)

@@ -24,8 +24,10 @@ export function useBatchProcessing() {
   );
 
   // Merge WebSocket logs into batchLogs state (only when new logs arrive)
+  const prevWsLogsLenRef = useRef(0);
   useEffect(() => {
-    if (wsLogs.length > 0) {
+    if (wsLogs.length > 0 && wsLogs.length !== prevWsLogsLenRef.current) {
+      prevWsLogsLenRef.current = wsLogs.length;
       setBatchLogs(wsLogs);
     }
   }, [wsLogs]);
@@ -48,9 +50,10 @@ export function useBatchProcessing() {
   const activeBatchIdRef = useRef<string | null>(null);
   activeBatchIdRef.current = activeBatch?.id ?? null;
 
-  const refetchBatchState = useCallback(async (batchId: string) => {
+  const refetchBatchState = useCallback(async (batchId: string, signal?: AbortSignal) => {
     try {
       const detail = await getBatchDetail(batchId);
+      if (signal?.aborted) return;
       setActiveBatch(detail.batch);
       setBatchCandidates(detail.candidates);
     } catch {
@@ -78,7 +81,9 @@ export function useBatchProcessing() {
       // Re-fetch from API to get accurate final state
       const batchId = activeBatchIdRef.current;
       if (batchId) {
-        refetchBatchState(batchId);
+        const controller = new AbortController();
+        refetchBatchState(batchId, controller.signal);
+        return () => controller.abort();
       }
     }
   }, [summary, refetchBatchState]);

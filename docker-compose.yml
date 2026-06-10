@@ -7,7 +7,7 @@ services:
     environment:
       POSTGRES_DB: bgv_db
       POSTGRES_USER: bgv_user
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bgv_secure_pass_change_me}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env or environment}
     ports:
       - "5432:5432"
     volumes:
@@ -16,6 +16,19 @@ services:
       test: ["CMD-SHELL", "pg_isready -U bgv_user -d bgv_db"]
       interval: 5s
       timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: bgv_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
       retries: 5
 
   ollama:
@@ -46,6 +59,7 @@ services:
       - DATABASE_SYNC_URL=postgresql://bgv_user:${POSTGRES_PASSWORD:-bgv_secure_pass_change_me}@postgres:5432/bgv_db
       - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set}
       - OLLAMA_BASE_URL=http://ollama:11434
+      - REDIS_URL=redis://redis:6379/0
       - UPLOAD_DIR=/app/uploads
       - LOG_LEVEL=INFO
       - ENVIRONMENT=production
@@ -71,5 +85,6 @@ services:
 
 volumes:
   pgdata:
+  redis_data:
   ollama_data:
   upload_data:

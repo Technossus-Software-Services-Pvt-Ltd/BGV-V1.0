@@ -18,8 +18,11 @@ export default function BatchUploadSection({
   return (
     <div className="card">
       <div
+        role="button"
+        tabIndex={0}
         onClick={() => fileInputRef.current?.click()}
-        className="border-2 border-dashed border-gray-200 rounded-2xl p-10 text-center cursor-pointer hover:border-primary-400 hover:bg-primary-50/30 transition-all duration-200 group"
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInputRef.current?.click(); } }}
+        className="border-2 border-dashed border-gray-200 rounded-2xl p-10 text-center cursor-pointer hover:border-primary-400 hover:bg-primary-50/30 transition-all duration-200 group focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:ring-offset-2"
       >
         <div className="mx-auto h-14 w-14 rounded-2xl bg-gray-100 group-hover:bg-primary-100 flex items-center justify-center transition-colors mb-3">
           <svg className="h-7 w-7 text-gray-400 group-hover:text-primary-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">

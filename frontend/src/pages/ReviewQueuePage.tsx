@@ -8,6 +8,45 @@ import SafeHtml from '../components/SafeHtml';
 
 const PAGE_SIZE = 20;
 
+// --- Static helpers (no component state dependency, moved outside to avoid re-creation) ---
+
+function statusLabel(status: string) {
+  switch (status) {
+    case 'partial': return 'Partial';
+    case 'awaiting_required_documents': return 'Awaiting Documents';
+    case 'failed': return 'Failed';
+    case 'no_documents': return 'No Documents';
+    default: return status;
+  }
+}
+
+function statusBadge(status: string) {
+  switch (status) {
+    case 'partial': return 'bg-orange-50 text-orange-700 ring-1 ring-inset ring-orange-600/10';
+    case 'awaiting_required_documents': return 'bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-600/10';
+    case 'failed': return 'bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-600/10';
+    case 'no_documents': return 'bg-slate-50 text-slate-700 ring-1 ring-inset ring-slate-600/10';
+    default: return 'bg-gray-50 text-gray-600 ring-1 ring-inset ring-gray-500/10';
+  }
+}
+
+function notifStatusBadge(status: string | null) {
+  switch (status) {
+    case 'sent': return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-green-50 text-green-700 ring-1 ring-inset ring-green-600/10">✓ Sent</span>;
+    case 'queued': return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-600/10">● Queued</span>;
+    case 'failed': return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-600/10">✗ Failed</span>;
+    default: return <span className="text-gray-300 text-xs">—</span>;
+  }
+}
+
+function reasonText(item: ReviewQueueItem) {
+  if (item.status === 'failed') return item.error_message || 'Processing error';
+  if (item.status === 'no_documents') return 'No documents received from candidate';
+  if (item.status === 'awaiting_required_documents') return 'No required documents matched';
+  if (item.status === 'partial') return 'Missing mandatory documents';
+  return '-';
+}
+
 export default function ReviewQueuePage() {
   const navigate = useNavigate();
   const [data, setData] = useState<ReviewQueueItem[]>([]);
@@ -132,43 +171,6 @@ export default function ReviewQueuePage() {
   };
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
-
-  const statusLabel = (status: string) => {
-    switch (status) {
-      case 'partial': return 'Partial';
-      case 'awaiting_required_documents': return 'Awaiting Documents';
-      case 'failed': return 'Failed';
-      case 'no_documents': return 'No Documents';
-      default: return status;
-    }
-  };
-
-  const statusBadge = (status: string) => {
-    switch (status) {
-      case 'partial': return 'bg-orange-50 text-orange-700 ring-1 ring-inset ring-orange-600/10';
-      case 'awaiting_required_documents': return 'bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-600/10';
-      case 'failed': return 'bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-600/10';
-      case 'no_documents': return 'bg-slate-50 text-slate-700 ring-1 ring-inset ring-slate-600/10';
-      default: return 'bg-gray-50 text-gray-600 ring-1 ring-inset ring-gray-500/10';
-    }
-  };
-
-  const notifStatusBadge = (status: string | null) => {
-    switch (status) {
-      case 'sent': return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-green-50 text-green-700 ring-1 ring-inset ring-green-600/10">✓ Sent</span>;
-      case 'queued': return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-600/10">● Queued</span>;
-      case 'failed': return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-600/10">✗ Failed</span>;
-      default: return <span className="text-gray-300 text-xs">—</span>;
-    }
-  };
-
-  const reasonText = (item: ReviewQueueItem) => {
-    if (item.status === 'failed') return item.error_message || 'Processing error';
-    if (item.status === 'no_documents') return 'No documents received from candidate';
-    if (item.status === 'awaiting_required_documents') return 'No required documents matched';
-    if (item.status === 'partial') return 'Missing mandatory documents';
-    return '-';
-  };
 
   if (loading && data.length === 0) return <LoadingSpinner message="Loading review queue..." />;
   if (error && data.length === 0) return <ErrorMessage message={error} onRetry={loadData} />;

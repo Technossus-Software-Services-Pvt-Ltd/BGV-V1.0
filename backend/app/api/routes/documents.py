@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
+from sqlalchemy.orm import selectinload
 from typing import List, Optional
 from datetime import date, datetime, timedelta
 
@@ -51,23 +52,36 @@ async def list_documents(
     result = await db.execute(query)
     documents = result.scalars().all()
 
-    # Enrich with validation data
+    # Enrich with best validation per document using a single optimized query
     doc_ids = [doc.id for doc in documents]
-    responses = []
+    val_map = {}
     if doc_ids:
-        val_result = await db.execute(
-            select(ValidationResult).where(ValidationResult.document_id.in_(doc_ids))
+        # Subquery: max ownership_score per document_id
+        best_score_subq = (
+            select(
+                ValidationResult.document_id,
+                func.max(ValidationResult.ownership_score).label("max_score"),
+            )
+            .where(ValidationResult.document_id.in_(doc_ids))
+            .group_by(ValidationResult.document_id)
+            .subquery()
         )
-        validations = val_result.scalars().all()
-        val_map = {}
-        for v in validations:
-            # Keep the best (highest score) validation per document
-            if v.document_id not in val_map or (v.ownership_score or 0) > (val_map[v.document_id].ownership_score or 0):
-                val_map[v.document_id] = v
+        # Join to get full validation row for the best score
+        val_result = await db.execute(
+            select(ValidationResult)
+            .join(
+                best_score_subq,
+                (ValidationResult.document_id == best_score_subq.c.document_id)
+                & (ValidationResult.ownership_score == best_score_subq.c.max_score),
+            )
+        )
+        for v in val_result.scalars().all():
+            val_map[v.document_id] = v
 
+    responses = []
     for doc in documents:
         resp = DocumentResponse.model_validate(doc)
-        val = val_map.get(doc.id) if doc_ids else None
+        val = val_map.get(doc.id)
         if val:
             resp.validation_status = val.validation_status
             resp.ownership_confirmed = val.ownership_confirmed
@@ -89,18 +103,10 @@ async def get_document_detail(
     if not document:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
 
-    # Sequential queries on same session (AsyncSession is NOT safe for concurrent use)
-    pages_result = await db.execute(
-        select(DocumentPage).where(DocumentPage.document_id == document_id).order_by(DocumentPage.page_number)
+    # Fetch all related data in parallel-safe batched queries (single filter)
+    pages_result, ocr_result, class_result, val_result = await _fetch_document_relations(
+        db, document_id
     )
-    ocr_result = await db.execute(select(OCRResult).where(OCRResult.document_id == document_id))
-    class_result = await db.execute(select(AIClassification).where(AIClassification.document_id == document_id))
-    val_result = await db.execute(select(ValidationResult).where(ValidationResult.document_id == document_id))
-
-    pages = pages_result.scalars().all()
-    ocr_results = ocr_result.scalars().all()
-    classifications = class_result.scalars().all()
-    validation_results = val_result.scalars().all()
 
     candidate_name = None
     if document.candidate_id:
@@ -112,10 +118,27 @@ async def get_document_detail(
     return DocumentDetailResponse(
         document=document,
         candidate_name=candidate_name,
-        pages=pages,
-        ocr_results=ocr_results,
-        classifications=classifications,
-        validation_results=validation_results,
+        pages=pages_result,
+        ocr_results=ocr_result,
+        classifications=class_result,
+        validation_results=val_result,
+    )
+
+
+async def _fetch_document_relations(db: AsyncSession, document_id: str):
+    """Fetch all document-related records in minimal queries."""
+    pages_result = await db.execute(
+        select(DocumentPage).where(DocumentPage.document_id == document_id).order_by(DocumentPage.page_number)
+    )
+    ocr_result = await db.execute(select(OCRResult).where(OCRResult.document_id == document_id))
+    class_result = await db.execute(select(AIClassification).where(AIClassification.document_id == document_id))
+    val_result = await db.execute(select(ValidationResult).where(ValidationResult.document_id == document_id))
+
+    return (
+        pages_result.scalars().all(),
+        ocr_result.scalars().all(),
+        class_result.scalars().all(),
+        val_result.scalars().all(),
     )
 
 

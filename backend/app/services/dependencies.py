@@ -3,8 +3,8 @@
 Provides factory functions that create service instances with their
 dependencies properly wired. Routes use these via `Depends(...)`.
 
-All providers return the same concrete implementations that were
-previously hard-coded, preserving identical behavior.
+All providers return protocol types (not concrete classes) to enforce
+loose coupling. Consumers depend on interfaces, not implementations.
 """
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +19,14 @@ from app.services.processing.normalizer import DocumentNormalizer
 from app.services.processing.splitter import DocumentSplitter
 from app.services.audit.logger import AuditService
 from app.services.websocket.hub import ws_hub
+from app.services.protocols import (
+    OCREngine,
+    DocumentPreprocessorProtocol,
+    AIClassifierProtocol,
+    OwnershipValidatorProtocol,
+    AuditServiceProtocol,
+    WebSocketHubProtocol,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -40,12 +48,12 @@ _splitter = DocumentSplitter()
 # ---------------------------------------------------------------------------
 
 
-def get_ocr_engine() -> PaddleOCREngine:
+def get_ocr_engine() -> "OCREngine":
     """Return the shared OCR engine instance."""
     return _ocr_engine
 
 
-def get_preprocessor() -> DocumentPreprocessor:
+def get_preprocessor() -> "DocumentPreprocessorProtocol":
     """Return the shared document preprocessor instance."""
     return _preprocessor
 
@@ -55,12 +63,12 @@ def get_confidence_evaluator() -> OCRConfidenceEvaluator:
     return _confidence_evaluator
 
 
-def get_ai_classifier() -> AIClassifier:
+def get_ai_classifier() -> "AIClassifierProtocol":
     """Return the shared AI classifier instance."""
     return _ai_classifier
 
 
-def get_ownership_validator() -> OwnershipValidator:
+def get_ownership_validator() -> "OwnershipValidatorProtocol":
     """Return the shared ownership validator instance."""
     return _ownership_validator
 
@@ -75,7 +83,7 @@ def get_splitter() -> DocumentSplitter:
     return _splitter
 
 
-def get_ws_hub():
+def get_ws_hub() -> "WebSocketHubProtocol":
     """Return the WebSocket hub singleton."""
     return ws_hub
 

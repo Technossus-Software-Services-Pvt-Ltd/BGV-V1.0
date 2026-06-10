@@ -16,8 +16,11 @@ from app.models.batch_import import BatchImport
 from app.models.batch_import_candidate import BatchImportCandidate
 from app.models.validation_result import ValidationResult
 from app.models.enums import ProcessingStatus, BatchImportStatus, ValidationStatus
+from app.services.cache import cache_service
 
 router = APIRouter(prefix="/dashboard")
+
+DASHBOARD_CACHE_KEY = "dashboard:stats"
 
 # Simple time-based cache for dashboard stats (30 second TTL) with lock for concurrent safety
 _dashboard_cache: dict[str, Any] = {"data": None, "expires_at": 0.0}
@@ -31,7 +34,12 @@ async def get_dashboard_stats(
 ):
     """Aggregate stats for the dashboard."""
 
-    # Return cached result if still fresh (lock-free fast path)
+    # Try Redis cache first
+    cached = await cache_service.get(DASHBOARD_CACHE_KEY)
+    if cached is not None:
+        return cached
+
+    # Fallback: in-memory cache (lock-free fast path)
     if _dashboard_cache["data"] is not None and time.monotonic() < _dashboard_cache["expires_at"]:
         return _dashboard_cache["data"]
 
@@ -146,5 +154,8 @@ async def get_dashboard_stats(
     async with _dashboard_cache_lock:
         _dashboard_cache["data"] = result
         _dashboard_cache["expires_at"] = time.monotonic() + settings.dashboard_cache_ttl_seconds
+
+    # Write to Redis (non-blocking, best-effort)
+    await cache_service.set(DASHBOARD_CACHE_KEY, result, ttl_seconds=settings.dashboard_cache_ttl_seconds)
 
     return result

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr
 from typing import Optional
 from datetime import datetime
 
@@ -6,7 +6,7 @@ from datetime import datetime
 class CandidateCreate(BaseModel):
     candidate_id: str = Field(..., min_length=1, max_length=100)
     name: str = Field(..., min_length=1, max_length=255)
-    email: Optional[str] = Field(None, max_length=255)
+    email: Optional[EmailStr] = Field(None)
     phone: Optional[str] = Field(None, max_length=20)
 
 

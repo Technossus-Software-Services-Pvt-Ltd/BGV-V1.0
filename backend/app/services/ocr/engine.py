@@ -181,7 +181,23 @@ class PaddleOCREngine:
 
     # Use the module-level dedicated OCR executor instead of a per-instance pool
     async def process_async(self, image_array: np.ndarray) -> OCREngineResult:
-        """Run OCR in a dedicated thread pool to avoid blocking the event loop."""
+        """Run OCR in the process pool (true CPU parallelism) or fall back to thread pool."""
+        from app.services.ocr.process_pool import ocr_process_pool
+
+        if ocr_process_pool.is_running:
+            result_dict = await ocr_process_pool.process_async(image_array)
+            return OCREngineResult(
+                text=result_dict["text"],
+                confidence=result_dict["confidence"],
+                word_count=result_dict["word_count"],
+                raw_output=result_dict["raw_output"],
+                processing_duration_ms=result_dict["processing_duration_ms"],
+                language_detected=result_dict.get("language_detected"),
+                orientation_angle=result_dict.get("orientation_angle", 0.0),
+                error=result_dict.get("error"),
+            )
+
+        # Fallback: thread pool (still useful for tests and single-process mode)
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(_ocr_executor, self.process, image_array)
 

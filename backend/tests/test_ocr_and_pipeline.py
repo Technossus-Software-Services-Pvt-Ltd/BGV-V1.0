@@ -163,14 +163,14 @@ class TestProcessingPipeline:
     @pytest.mark.asyncio
     async def test_pipeline_missing_document(self):
         """Pipeline should handle missing document gracefully."""
-        from app.services.processing.pipeline import ProcessingPipeline
+        from app.services.dependencies import get_processing_pipeline
 
         mock_db = AsyncMock()
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = None
         mock_db.execute = AsyncMock(return_value=mock_result)
 
-        pipeline = ProcessingPipeline(db=mock_db)
+        pipeline = get_processing_pipeline(db=mock_db)
         # Should not crash on missing document
         await pipeline.process_document("nonexistent-doc-id")
 

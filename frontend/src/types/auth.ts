@@ -14,5 +14,5 @@ export interface GoogleAuthStartResponse {
 export interface GoogleAuthCallbackResponse {
   success: boolean;
   user: AuthUser;
-  session_token: string;
+  // session_token is set via httpOnly cookie — intentionally not exposed to JS
 }

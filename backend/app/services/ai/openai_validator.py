@@ -217,7 +217,7 @@ IMPORTANT:
         if not document_file_path:
             return user_text
 
-        file_path = Path(document_file_path)
+        file_path = settings.resolve_file_path(document_file_path)
         if not file_path.exists():
             logger.warning("openai_document_not_found", path=document_file_path)
             return user_text

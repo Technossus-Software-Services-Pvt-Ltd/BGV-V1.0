@@ -50,6 +50,12 @@ export default function DocumentRulesSection({ onError, onSuccess }: DocumentRul
   const [savingChecklist, setSavingChecklist] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  // Refs to avoid re-triggering loadChecklist when parent re-renders
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
+  const onSuccessRef = useRef(onSuccess);
+  onSuccessRef.current = onSuccess;
+
   const loadChecklist = useCallback(async () => {
     try {
       const requiredDocs = await listRequiredDocuments();
@@ -69,11 +75,11 @@ export default function DocumentRulesSection({ onError, onSuccess }: DocumentRul
               })),
       );
     } catch {
-      onError('Failed to load document rules');
+      onErrorRef.current('Failed to load document rules');
     } finally {
       setLoading(false);
     }
-  }, [onError]);
+  }, []);
 
   useEffect(() => { loadChecklist(); }, [loadChecklist]);
 
@@ -148,7 +154,7 @@ export default function DocumentRulesSection({ onError, onSuccess }: DocumentRul
         .filter((row) => row.document_name && row.category);
 
       if (normalizedRows.length === 0) {
-        onError('Add at least one valid checklist row before saving');
+        onErrorRef.current('Add at least one valid checklist row before saving');
         return;
       }
 
@@ -166,9 +172,9 @@ export default function DocumentRulesSection({ onError, onSuccess }: DocumentRul
             is_active: item.is_active,
           })),
       );
-      onSuccess('Required documents checklist saved');
+      onSuccessRef.current('Required documents checklist saved');
     } catch {
-      onError('Failed to save required documents checklist');
+      onErrorRef.current('Failed to save required documents checklist');
     } finally {
       setSavingChecklist(false);
     }
@@ -243,13 +249,13 @@ export default function DocumentRulesSection({ onError, onSuccess }: DocumentRul
       const text = await file.text();
       const parsed = parseChecklistCsv(text);
       if (parsed.length === 0) {
-        onError('Uploaded file is empty or has invalid checklist rows');
+        onErrorRef.current('Uploaded file is empty or has invalid checklist rows');
       } else {
         setChecklistRows(parsed);
-        onSuccess(`Loaded ${parsed.length} checklist rows from file`);
+        onSuccessRef.current(`Loaded ${parsed.length} checklist rows from file`);
       }
     } catch {
-      onError('Failed to read uploaded checklist file');
+      onErrorRef.current('Failed to read uploaded checklist file');
     } finally {
       event.target.value = '';
     }

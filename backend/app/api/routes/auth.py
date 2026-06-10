@@ -73,7 +73,6 @@ class AuthenticatedUser(BaseModel):
 class GoogleAuthCallbackResponse(BaseModel):
     success: bool
     user: AuthenticatedUser
-    session_token: str
 
 
 class LogoutResponse(BaseModel):
@@ -81,21 +80,20 @@ class LogoutResponse(BaseModel):
     message: str
 
 
-def _extract_session_token(request: Request) -> Optional[str]:
-    # Cookie first (httpOnly, most secure)
-    cookie_token = request.cookies.get(settings.session_cookie_name)
-    if cookie_token:
-        return cookie_token
-
-    auth_header = request.headers.get("authorization", "")
-    if auth_header.lower().startswith("bearer "):
-        return auth_header[7:].strip()
-
-    return request.headers.get("x-session-token")
+# Reuse the centralized token extraction logic from deps
+from app.api.deps import _extract_token as _extract_session_token
 
 
 def _resolve_redirect_uri(request: Optional[Request], redirect_uri: Optional[str]) -> str:
     if redirect_uri:
+        # Validate redirect_uri against allowed CORS origins
+        parsed = urlparse(redirect_uri)
+        origin = f"{parsed.scheme}://{parsed.netloc}"
+        if origin not in settings.cors_origins_list:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid redirect URI: origin not in allowed list",
+            )
         return redirect_uri
 
     if request:
@@ -107,7 +105,8 @@ def _resolve_redirect_uri(request: Optional[Request], redirect_uri: Optional[str
                 if parsed.scheme and parsed.netloc:
                     origin = f"{parsed.scheme}://{parsed.netloc}"
 
-        if origin and (origin.startswith("http://") or origin.startswith("https://")):
+        # Only use origin if it's in the configured CORS allowlist
+        if origin and origin in settings.cors_origins_list:
             return f"{origin.rstrip('/')}/auth/callback"
 
     return settings.google_redirect_uri
@@ -308,7 +307,6 @@ async def google_auth_callback(
             picture=user_payload.get("picture"),
             google_id=user_payload.get("id"),
         ),
-        session_token=session_token,
     )
 
 
