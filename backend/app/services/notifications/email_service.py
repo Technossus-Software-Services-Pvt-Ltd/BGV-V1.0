@@ -82,7 +82,10 @@ class NotificationService:
 
         if candidate.status == BatchCandidateStatus.AWAITING_REQUIRED_DOCUMENTS.value:
             subject = f"Action Required: Submit Required Documents - {name}"
-            doc_list = "".join(f"<li>{html_escape(doc)}</li>" for doc in sorted(mandatory_names))
+            missing = NotificationService._extract_missing_docs(
+                candidate.error_message, mandatory_names
+            )
+            doc_list = "".join(f"<li>{html_escape(doc)}</li>" for doc in sorted(missing))
             body_html = f"""
 <p>Dear {name},</p>
 <p>We have not received any of the required documents for your background verification.</p>
@@ -139,17 +142,32 @@ class NotificationService:
 
     @staticmethod
     def _extract_missing_docs(error_message: str | None, mandatory_names: Set[str]) -> Set[str]:
-        """Extract missing document names from error_message or return all mandatory."""
+        """Extract missing document names from error_message or return all mandatory.
+
+        The orchestrator writes structured messages in the form:
+            "Missing mandatory documents: Aadhaar Card, PAN Card"
+        We parse that prefix first for an exact list. Only when that prefix is
+        absent do we fall back to fuzzy matching against mandatory_names.
+        """
         if not error_message:
             return mandatory_names
 
-        # Try to parse comma-separated doc names from error message
-        # e.g. "Missing mandatory documents: Aadhaar Card, PAN Card"
+        # --- Structured format written by the orchestrator ---
+        PREFIX = "Missing mandatory documents:"
+        lower_msg = error_message.strip()
+        if lower_msg.lower().startswith(PREFIX.lower()):
+            raw_names = lower_msg[len(PREFIX):].strip()
+            if raw_names:
+                parsed = {name.strip() for name in raw_names.split(",") if name.strip()}
+                if parsed:
+                    return parsed
+
+        # --- Fallback: fuzzy match (legacy / unexpected formats) ---
         found = set()
         for doc_name in mandatory_names:
             normalized = re.sub(r'[\s_\-]+', '', doc_name.lower())
             if normalized in re.sub(r'[\s_\-]+', '', error_message.lower()):
-                continue  # This doc was mentioned as present or similar
+                continue  # This doc was mentioned — assume it was received
             found.add(doc_name)
 
         return found if found else mandatory_names

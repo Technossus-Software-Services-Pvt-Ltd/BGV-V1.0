@@ -394,12 +394,14 @@ class BatchOrchestrator:
                 bc.status = BatchCandidateStatus.AWAITING_REQUIRED_DOCUMENTS.value
                 missing_names = [r.document_name for r in required_rules
                                  if r.is_mandatory and ChecklistMatcher.normalize_doc_type(r.document_name) in missing_mandatory]
+                bc.error_message = f"Missing mandatory documents: {', '.join(missing_names)}"
                 await self._status.log(batch.id, bc.id, "warning", "checklist",
                                        f"{prefix}: No required documents found. Missing: {', '.join(missing_names)}")
             elif missing_mandatory:
                 bc.status = BatchCandidateStatus.PARTIAL.value
                 missing_names = [r.document_name for r in required_rules
                                  if r.is_mandatory and ChecklistMatcher.normalize_doc_type(r.document_name) in missing_mandatory]
+                bc.error_message = f"Missing mandatory documents: {', '.join(missing_names)}"
                 await self._status.log(batch.id, bc.id, "warning", "checklist",
                                        f"{prefix}: Partial. {len(matched_mandatory)}/{len(mandatory_doc_names)} mandatory docs. "
                                        f"Missing: {', '.join(missing_names)}")

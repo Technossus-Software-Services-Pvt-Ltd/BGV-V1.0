@@ -5,6 +5,7 @@ export type NavItem = {
   name: string;
   path: string;
   icon: ReactNode;
+  hidden?: boolean;
 };
 
 export const navigation: NavItem[] = [
@@ -47,6 +48,7 @@ export const navigation: NavItem[] = [
   {
     name: 'Candidates',
     path: '/candidates',
+    hidden: true,
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden="true">
         <circle cx="12" cy="8" r="3.5" />
@@ -57,6 +59,7 @@ export const navigation: NavItem[] = [
   {
     name: 'Audit Logs',
     path: '/audit',
+    hidden: true,
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden="true">
         <path d="M4 12a8 8 0 1 0 3-6.2" />
@@ -97,7 +100,7 @@ export default function SidebarNav({ onItemClick }: SidebarNavProps) {
 
   return (
     <nav className="space-y-1.5" aria-label="Main Navigation">
-      {navigation.map((item) => {
+      {navigation.filter((item) => !item.hidden).map((item) => {
         const isActive = location.pathname === item.path ||
           (item.path !== '/' && location.pathname.startsWith(item.path));
 
