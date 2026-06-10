@@ -123,8 +123,9 @@ class TestPipelineOrchestratorStructure:
     def test_pipeline_creates_all_stages(self):
         mock_db = MagicMock()
         from app.services.processing.pipeline import ProcessingPipeline
+        from app.services.dependencies import get_processing_pipeline
 
-        pipeline = ProcessingPipeline(mock_db)
+        pipeline = get_processing_pipeline(mock_db)
         assert isinstance(pipeline._normalization_stage, NormalizationStage)
         assert isinstance(pipeline._ocr_stage, OCRStage)
         assert isinstance(pipeline._classification_stage, ClassificationStage)
@@ -147,9 +148,11 @@ class TestPipelineOrchestratorStructure:
             mock_db,
             ocr_engine=mock_ocr,
             preprocessor=mock_preprocessor,
+            confidence_evaluator=MagicMock(),
             ai_classifier=mock_classifier,
             ownership_validator=mock_validator,
             normalizer=mock_normalizer,
+            splitter=MagicMock(),
             audit_service=mock_audit,
         )
 
@@ -169,8 +172,9 @@ class TestPipelineOrchestratorStructure:
         """process_document is still the main entry point."""
         mock_db = MagicMock()
         from app.services.processing.pipeline import ProcessingPipeline
+        from app.services.dependencies import get_processing_pipeline
 
-        pipeline = ProcessingPipeline(mock_db)
+        pipeline = get_processing_pipeline(mock_db)
         assert hasattr(pipeline, "process_document")
         assert callable(pipeline.process_document)
 
@@ -198,8 +202,9 @@ class TestPipelineStopSignal:
         mock_db.execute.return_value = mock_result
 
         from app.services.processing.pipeline import ProcessingPipeline
+        from app.services.dependencies import get_processing_pipeline
 
-        pipeline = ProcessingPipeline(mock_db)
+        pipeline = get_processing_pipeline(mock_db)
 
         # Mock stages
         pipeline._normalization_stage.execute = AsyncMock()

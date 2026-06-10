@@ -5,6 +5,7 @@ from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.models.document import DocumentPage
 from app.models.enums import ProcessingStatus, AuditAction
 from app.services.processing.normalizer import DocumentNormalizer
@@ -43,7 +44,7 @@ class NormalizationStage:
         )
 
         doc_dir = self.normalizer.get_document_dir(correlation_id, document_id)
-        file_path = Path(document.file_path)
+        file_path = settings.resolve_file_path(document.file_path)
         loop = asyncio.get_running_loop()
         page_paths = await loop.run_in_executor(
             None, self.normalizer.extract_pages, file_path, doc_dir, document.mime_type

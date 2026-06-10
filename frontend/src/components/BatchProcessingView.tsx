@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { BatchImport, BatchCandidate, BatchLogEntry } from '../types';
 import ProcessingSummary from './ProcessingSummary';
 import LiveExecutionLogs from './LiveExecutionLogs';
@@ -16,28 +17,8 @@ export default function BatchProcessingView({
   batchLogs,
   clearLogs,
 }: BatchProcessingViewProps) {
-  const processed = activeBatch.processed_candidates + activeBatch.failed_candidates + activeBatch.skipped_candidates;
-  const progressPercent = activeBatch.total_candidates > 0
-    ? Math.round((processed / activeBatch.total_candidates) * 100)
-    : 0;
-
   return (
     <>
-      {/* Progress Bar - Full Width */}
-      <div className="card p-4">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-sm font-medium text-gray-700">Processing Progress</span>
-          <span className="text-sm text-gray-500 tabular-nums">
-            {processed} / {activeBatch.total_candidates} candidates
-          </span>
-        </div>
-        <div className="w-full bg-gray-100 rounded-full h-2.5">
-          <div
-            className="bg-gradient-to-r from-emerald-500 to-emerald-600 h-2.5 rounded-full transition-all duration-500"
-            style={{ width: `${progressPercent}%` }}
-          />
-        </div>
-      </div>
 
       {/* 3-Column Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -74,19 +55,7 @@ export default function BatchProcessingView({
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {batchCandidates.map((c) => (
-                    <tr key={c.id} className="hover:bg-gray-50/50 transition-colors">
-                      <td className="px-4 py-3 text-xs font-mono text-gray-600">{c.source_candidate_id}</td>
-                      <td className="px-4 py-3 text-sm font-medium text-gray-900">{c.source_name}</td>
-                      <td className="px-4 py-3 text-xs text-gray-500 truncate max-w-[140px]">{c.source_email || '—'}</td>
-                      <td className="px-4 py-3">
-                        <span className={`inline-block px-2 py-0.5 rounded-lg text-xs font-semibold ${statusColor(c.status)}`}>
-                          {c.status === 'awaiting_required_documents' ? 'Awaiting' : c.status.charAt(0).toUpperCase() + c.status.slice(1)}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-500 tabular-nums">
-                        {c.documents_found > 0 ? `${c.documents_processed}/${c.documents_found}` : '—'}
-                      </td>
-                    </tr>
+                    <CandidateRow key={c.id} candidate={c} />
                   ))}
                 </tbody>
               </table>
@@ -104,3 +73,27 @@ export default function BatchProcessingView({
     </>
   );
 }
+
+// Memoized row to prevent re-rendering all rows on every WebSocket update
+const CandidateRow = memo(function CandidateRow({ candidate }: { candidate: BatchCandidate }) {
+  const c = candidate;
+  return (
+    <tr className="hover:bg-gray-50/50 transition-colors">
+      <td className="px-4 py-3 text-xs font-mono text-gray-600">{c.source_candidate_id}</td>
+      <td className="px-4 py-3 text-sm font-medium text-gray-900">{c.source_name}</td>
+      <td className="px-4 py-3 text-xs text-gray-500 truncate max-w-[140px]">{c.source_email || '—'}</td>
+      <td className="px-4 py-3">
+        <span className={`inline-block px-2 py-0.5 rounded-lg text-xs font-semibold ${statusColor(c.status)}`}>
+          {c.status === 'awaiting_required_documents' ? 'Awaiting' : c.status.charAt(0).toUpperCase() + c.status.slice(1)}
+        </span>
+      </td>
+      <td className="px-4 py-3 text-sm text-gray-500 tabular-nums">
+        {c.documents_found > 0 ? `${c.documents_processed}/${c.documents_found}` : '—'}
+      </td>
+    </tr>
+  );
+}, (prev, next) =>
+  prev.candidate.status === next.candidate.status &&
+  prev.candidate.documents_processed === next.candidate.documents_processed &&
+  prev.candidate.documents_found === next.candidate.documents_found
+);

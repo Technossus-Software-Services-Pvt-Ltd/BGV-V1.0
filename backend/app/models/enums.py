@@ -35,6 +35,8 @@ class DocumentType(str, enum.Enum):
     MARKSHEET_DEGREE = "marksheet_degree"
     CERTIFICATE_10TH = "certificate_10th"
     CERTIFICATE_12TH = "certificate_12th"
+    COLLEGE_ID_CARD = "college_id_card"
+    FITMENT_MEDICAL_CERTIFICATE = "fitment_medical_certificate"
     PAYSLIP = "payslip"
     EXPERIENCE_LETTER = "experience_letter"
     BANK_STATEMENT = "bank_statement"

@@ -15,11 +15,15 @@ class Settings(BaseSettings):
     # Environment
     environment: str = "development"
     debug: bool = False
-    log_level: str = "Info"
+    log_level: str = "INFO"
 
     # Database — no hardcoded credentials; must be provided via .env or environment
     database_url: str = ""
     database_sync_url: str = ""
+    db_pool_size: int = 20
+    db_max_overflow: int = 20
+    db_pool_timeout: int = 30
+    db_pool_recycle: int = 3600
 
     # Ollama
     ollama_base_url: str = "http://localhost:11434"
@@ -40,25 +44,17 @@ class Settings(BaseSettings):
     google_redirect_uri: str = "http://localhost:3000/auth/callback"
 
     # Processing
-    max_concurrent_ocr: int = 2
-    max_concurrent_ai: int = 1
+    max_concurrent_ocr: int = 4
+    max_concurrent_ai: int = 2
     ocr_timeout_seconds: int = 120
-    ai_timeout_seconds: int = 60
+    ocr_page_timeout_seconds: int = 30
+    max_pdf_pages: int = 50
+    ocr_process_workers: int = 4
+    ai_timeout_seconds: int = 120
+    ocr_max_dimension: int = 5120
+    ocr_retry_confidence_threshold: float = 0.5
 
     # OpenAI Configuration
-    openai_api_key: str = ""
-    openai_model: str = "gpt-4o-mini"
-    openai_enabled: bool = False
-    openai_max_retries: int = 2
-    openai_timeout_seconds: int = 30
-
-    # OpenAI Fallback Thresholds
-    openai_fallback_min_ocr_confidence: float = 0.3
-    openai_fallback_min_classification_confidence: float = 0.5
-    openai_fallback_max_ownership_score: float = 80.0
-
-    ai_timeout_seconds: int = 120
-
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
     openai_enabled: bool = False
@@ -95,14 +91,31 @@ class Settings(BaseSettings):
     # WebSocket
     ws_ticket_ttl_seconds: int = 30
 
+    # Redis
+    redis_url: str = "redis://localhost:6379/0"
+    redis_enabled: bool = True
+
+    # Celery
+    celery_enabled: bool = False
+    celery_broker_url: str = "redis://localhost:6379/1"
+    celery_result_backend: str = "redis://localhost:6379/2"
+
     # Dashboard
     dashboard_cache_ttl_seconds: int = 30
 
     # Session cookie
     session_cookie_name: str = "bgv_session"
-    session_cookie_secure: bool = False  # Set True in production (HTTPS only)
+    session_cookie_secure: bool = True  # HTTPS only; override to False for local dev via .env
     session_cookie_samesite: str = "lax"  # "strict" for highest security; "lax" allows OAuth redirects
     session_cookie_domain: str = ""  # Empty = current domain only
+
+    @field_validator("log_level")
+    @classmethod
+    def _validate_log_level(cls, v: str) -> str:
+        valid = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+        if v.upper() not in valid:
+            raise ValueError(f"log_level must be one of {valid}, got '{v}'")
+        return v
 
     @model_validator(mode="after")
     def _validate_required_settings(self) -> "Settings":
@@ -146,9 +159,21 @@ class Settings(BaseSettings):
 
     @property
     def upload_path(self) -> Path:
-        path = Path(self.upload_dir)
-        path.mkdir(parents=True, exist_ok=True)
-        return path
+        return Path(self.upload_dir)
+
+    def resolve_file_path(self, stored_path: str) -> Path:
+        """Resolve a stored relative path to an absolute filesystem path.
+
+        Handles both new relative paths (correlation_id/filename) and
+        legacy absolute paths for backward compatibility.
+        """
+        p = Path(stored_path)
+        if p.is_absolute():
+            return p
+        upload_path = self.upload_path
+        if p.parts and p.parts[0].lower() == upload_path.name.lower():
+            return upload_path.parent / p
+        return upload_path / p
 
     model_config = SettingsConfigDict(
         env_file=".env",

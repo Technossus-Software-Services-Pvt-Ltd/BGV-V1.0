@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { getFileNamingRule, saveFileNamingRule } from '../api/endpoints';
 
 interface FileNamingSectionProps {
@@ -13,6 +13,11 @@ export default function FileNamingSection({ onError, onSuccess }: FileNamingSect
   const [savingFileNaming, setSavingFileNaming] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
+  const onSuccessRef = useRef(onSuccess);
+  onSuccessRef.current = onSuccess;
+
   const loadNamingRule = useCallback(async () => {
     try {
       const namingRule = await getFileNamingRule();
@@ -20,11 +25,11 @@ export default function FileNamingSection({ onError, onSuccess }: FileNamingSect
       setFileRenamePattern(namingRule.file_rename_pattern);
       setFileNamingExample(namingRule.example_output);
     } catch {
-      onError('Failed to load file naming rules');
+      onErrorRef.current('Failed to load file naming rules');
     } finally {
       setLoading(false);
     }
-  }, [onError]);
+  }, []);
 
   useEffect(() => { loadNamingRule(); }, [loadNamingRule]);
 
@@ -33,7 +38,7 @@ export default function FileNamingSection({ onError, onSuccess }: FileNamingSect
     const normalizedFilePattern = fileRenamePattern.trim();
 
     if (!normalizedFolderPattern || !normalizedFilePattern) {
-      onError('Folder and file naming patterns are required');
+      onErrorRef.current('Folder and file naming patterns are required');
       return;
     }
 
@@ -46,9 +51,9 @@ export default function FileNamingSection({ onError, onSuccess }: FileNamingSect
       setFolderStructurePattern(saved.folder_structure_pattern);
       setFileRenamePattern(saved.file_rename_pattern);
       setFileNamingExample(saved.example_output);
-      onSuccess('File naming rules saved');
+      onSuccessRef.current('File naming rules saved');
     } catch {
-      onError('Failed to save file naming rules');
+      onErrorRef.current('Failed to save file naming rules');
     } finally {
       setSavingFileNaming(false);
     }

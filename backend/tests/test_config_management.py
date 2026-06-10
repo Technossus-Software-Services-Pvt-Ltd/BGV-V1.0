@@ -8,6 +8,8 @@ Verifies that:
 5. Services read from settings (not hardcoded)
 """
 
+from pathlib import Path
+
 import pytest
 from unittest.mock import patch
 from pydantic import ValidationError
@@ -35,7 +37,7 @@ class TestSettingsDefaults:
         assert s.ollama_connect_timeout == 10.0
         assert s.ollama_max_retries == 3
         assert s.ollama_num_predict == 1024
-        assert s.ollama_num_ctx == 4096
+        assert s.ollama_num_ctx == 8192
 
     def test_notification_defaults(self):
         s = Settings(environment="development")
@@ -56,10 +58,17 @@ class TestSettingsDefaults:
 
     def test_processing_defaults(self):
         s = Settings(environment="development", _env_file=None)
-        assert s.max_concurrent_ocr == 2
-        assert s.max_concurrent_ai == 1
+        assert s.max_concurrent_ocr == 4
+        assert s.max_concurrent_ai == 2
         assert s.ocr_timeout_seconds == 120
         assert s.ai_timeout_seconds == 120
+
+    def test_db_pool_defaults(self):
+        s = Settings(environment="development", _env_file=None)
+        assert s.db_pool_size == 20
+        assert s.db_max_overflow == 20
+        assert s.db_pool_timeout == 30
+        assert s.db_pool_recycle == 3600
 
 
 class TestSettingsOverride:
@@ -144,6 +153,14 @@ class TestSettingsProperties:
     def test_max_upload_size_bytes(self):
         s = Settings(environment="development", max_upload_size_mb=10)
         assert s.max_upload_size_bytes == 10 * 1024 * 1024
+
+    def test_resolve_file_path_relative_to_upload_dir(self):
+        s = Settings(environment="development", upload_dir="./uploads", _env_file=None)
+        assert s.resolve_file_path("corr-1/doc.pdf") == Path("uploads") / "corr-1" / "doc.pdf"
+
+    def test_resolve_file_path_legacy_upload_prefixed_path(self):
+        s = Settings(environment="development", upload_dir="./uploads", _env_file=None)
+        assert s.resolve_file_path("uploads/corr-1/doc.pdf") == Path("uploads") / "corr-1" / "doc.pdf"
 
 
 class TestSettingsIntegration:

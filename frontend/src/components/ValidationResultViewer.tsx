@@ -63,13 +63,19 @@ export default function ValidationResultViewer({ results, openaiEnabled }: Valid
   );
 }
 
+function safeParseArray(json: string | null): string[] {
+  if (!json) return [];
+  try {
+    const parsed = JSON.parse(json);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 function OpenAIResultSection({ result }: { result: ValidationResult }) {
-  const keyEvidence: string[] = result.openai_key_evidence_json
-    ? JSON.parse(result.openai_key_evidence_json)
-    : [];
-  const concerns: string[] = result.openai_concerns_json
-    ? JSON.parse(result.openai_concerns_json)
-    : [];
+  const keyEvidence = safeParseArray(result.openai_key_evidence_json);
+  const concerns = safeParseArray(result.openai_concerns_json);
 
   return (
     <div className="bg-blue-50/80 rounded-xl p-3 mt-3 border border-blue-100">

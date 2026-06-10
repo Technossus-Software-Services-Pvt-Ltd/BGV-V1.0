@@ -10,6 +10,8 @@ export default function BatchHistoryPage() {
   const [batches, setBatches] = useState<BatchImport[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
+  const PAGE_SIZE = 25;
 
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -21,7 +23,7 @@ export default function BatchHistoryPage() {
     setLoading(true);
     setError(null);
     try {
-      const params: { limit: number; status?: string; date_from?: string; date_to?: string } = { limit: 200 };
+      const params: { skip: number; limit: number; status?: string; date_from?: string; date_to?: string } = { skip: page * PAGE_SIZE, limit: PAGE_SIZE };
       if (statusFilter) params.status = statusFilter;
       if (dateFrom) params.date_from = dateFrom;
       if (dateTo) params.date_to = dateTo;
@@ -32,14 +34,15 @@ export default function BatchHistoryPage() {
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, dateFrom, dateTo]);
+  }, [statusFilter, dateFrom, dateTo, page]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
 
   const handleSearch = () => {
-    loadData();
+    setPage(0);
+    // loadData triggers automatically via useEffect when page/filters change
   };
 
   // Stats
@@ -212,6 +215,40 @@ export default function BatchHistoryPage() {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {/* Pagination */}
+      {batches.length === PAGE_SIZE && (
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-gray-500">Page {page + 1}</p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              disabled={page === 0}
+              className="btn-secondary text-sm disabled:opacity-50"
+            >
+              Previous
+            </button>
+            <button
+              onClick={() => setPage((p) => p + 1)}
+              disabled={batches.length < PAGE_SIZE}
+              className="btn-secondary text-sm disabled:opacity-50"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
+      {batches.length < PAGE_SIZE && page > 0 && (
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-gray-500">Page {page + 1}</p>
+          <button
+            onClick={() => setPage((p) => Math.max(0, p - 1))}
+            className="btn-secondary text-sm"
+          >
+            Previous
+          </button>
         </div>
       )}
     </div>

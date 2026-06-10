@@ -14,6 +14,7 @@ from app.services.ocr.engine import PaddleOCREngine
 from app.services.ocr.preprocessor import DocumentPreprocessor
 from app.services.processing.stages.context import PipelineContext
 from app.services.audit.logger import AuditService
+from app.core.config import settings
 from app.core.logging import get_logger
 
 logger = get_logger("processing.stages.ocr")
@@ -125,8 +126,56 @@ class OCRStage:
                 await self.db.flush()
                 return ocr_record
 
-            # Run OCR (CPU-bound, uses dedicated thread pool)
-            ocr_result = await self.ocr_engine.process_async(img_array)
+            # Run OCR (CPU-bound, uses dedicated thread pool) with per-page timeout
+            try:
+                ocr_result = await asyncio.wait_for(
+                    self.ocr_engine.process_async(img_array),
+                    timeout=settings.ocr_page_timeout_seconds,
+                )
+            except asyncio.TimeoutError:
+                page.processing_status = ProcessingStatus.OCR_FAILED.value
+                ocr_record = OCRResult(
+                    document_id=document.id,
+                    page_id=page.id,
+                    ocr_engine="paddleocr",
+                    extracted_text="",
+                    confidence_score=0.0,
+                    word_count=0,
+                    processing_duration_ms=settings.ocr_page_timeout_seconds * 1000,
+                    correlation_id=correlation_id,
+                    error_message=f"OCR timed out after {settings.ocr_page_timeout_seconds}s",
+                )
+                self.db.add(ocr_record)
+                await self.db.flush()
+                logger.warning("page_ocr_timeout", page_id=page.id, timeout=settings.ocr_page_timeout_seconds)
+                return ocr_record
+
+            # Retry with aggressive preprocessing if confidence is below threshold
+            if ocr_result.confidence < settings.ocr_retry_confidence_threshold and ocr_result.confidence > 0:
+                logger.info(
+                    "ocr_low_confidence_retry",
+                    page_id=page.id,
+                    original_confidence=ocr_result.confidence,
+                )
+                enhanced_array = await loop.run_in_executor(
+                    None, self.preprocessor.enhance_aggressive, img_array
+                )
+                try:
+                    retry_result = await asyncio.wait_for(
+                        self.ocr_engine.process_async(enhanced_array),
+                        timeout=settings.ocr_page_timeout_seconds,
+                    )
+                    # Keep the better result
+                    if retry_result.confidence > ocr_result.confidence:
+                        logger.info(
+                            "ocr_retry_improved",
+                            page_id=page.id,
+                            old_conf=ocr_result.confidence,
+                            new_conf=retry_result.confidence,
+                        )
+                        ocr_result = retry_result
+                except asyncio.TimeoutError:
+                    logger.warning("ocr_retry_timeout", page_id=page.id)
 
             # Update page metadata
             page.width = metadata.get("final_width")

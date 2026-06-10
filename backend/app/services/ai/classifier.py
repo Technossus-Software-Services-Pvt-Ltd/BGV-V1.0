@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 
 from app.services.ai.ollama_client import OllamaClient
 from app.services.ai.prompts import CLASSIFICATION_PROMPT, OWNERSHIP_EXTRACTION_PROMPT
+from app.services.ai.sanitizer import sanitize_ocr_text, wrap_ocr_text_for_prompt, validate_classification_evidence
 from app.models.enums import DocumentType
 from app.core.logging import get_logger
 
@@ -69,16 +70,28 @@ class AIClassifier:
                 error="Insufficient text",
             )
 
-        # Truncate very long texts to fit context window
-        truncated_text = ocr_text[:3000] if len(ocr_text) > 3000 else ocr_text
+        # Truncate very long texts to fit context window (word-boundary aware)
+        if len(ocr_text) > 3000:
+            cut = ocr_text.rfind(" ", 0, 3000)
+            truncated_text = ocr_text[:cut] if cut > 2400 else ocr_text[:3000]
+        else:
+            truncated_text = ocr_text
+
+        # Sanitize OCR text to prevent prompt injection
+        sanitized_text, was_injected = sanitize_ocr_text(truncated_text)
+        if was_injected:
+            logger.warning("prompt_injection_sanitized", word_count=word_count)
+
+        # Wrap with boundary markers
+        wrapped_text = wrap_ocr_text_for_prompt(sanitized_text)
 
         prompt = CLASSIFICATION_PROMPT.format(
-            ocr_text=truncated_text,
+            ocr_text=wrapped_text,
             ocr_confidence=f"{ocr_confidence:.2f}",
             word_count=word_count,
         )
 
-        response = await self.client.generate(prompt, temperature=0.1)
+        response = await self.client.generate(prompt, temperature=0.0)
 
         if not response.is_successful:
             return ClassificationResult(
@@ -97,6 +110,18 @@ class AIClassifier:
         result.completion_tokens = response.completion_tokens
         result.processing_duration_ms = response.duration_ms
 
+        # Layer 3: Post-classification evidence validation
+        if result.document_type != DocumentType.UNKNOWN.value:
+            if not validate_classification_evidence(result.document_type, truncated_text):
+                logger.warning(
+                    "classification_evidence_missing",
+                    claimed_type=result.document_type,
+                    confidence=result.confidence,
+                )
+                # Reduce confidence — don't override entirely, but flag it
+                result.confidence = min(result.confidence, 0.4)
+                result.reasoning = (result.reasoning or "") + " [WARNING: no supporting evidence in OCR text]"
+
         logger.info("classification_complete", document_type=result.document_type, confidence=f"{result.confidence:.2f}", duration_ms=response.duration_ms)
         return result
 
@@ -110,12 +135,16 @@ class AIClassifier:
 
         truncated_text = ocr_text[:2000] if len(ocr_text) > 2000 else ocr_text
 
+        # Sanitize OCR text to prevent prompt injection
+        sanitized_text, _ = sanitize_ocr_text(truncated_text)
+        wrapped_text = wrap_ocr_text_for_prompt(sanitized_text)
+
         prompt = OWNERSHIP_EXTRACTION_PROMPT.format(
             document_type=document_type,
-            ocr_text=truncated_text,
+            ocr_text=wrapped_text,
         )
 
-        response = await self.client.generate(prompt, temperature=0.1)
+        response = await self.client.generate(prompt, temperature=0.0)
 
         if not response.is_successful:
             return OwnershipExtractionResult(error=response.error)
@@ -197,10 +226,16 @@ class AIClassifier:
             end = content.index("```", start)
             return content[start:end].strip()
 
-        # Last resort: find first { and last }
+        # Last resort: find first { and match balanced braces
         start = content.find("{")
-        end = content.rfind("}")
-        if start != -1 and end != -1:
-            return content[start:end + 1]
+        if start != -1:
+            brace_count = 0
+            for i in range(start, len(content)):
+                if content[i] == "{":
+                    brace_count += 1
+                elif content[i] == "}":
+                    brace_count -= 1
+                    if brace_count == 0:
+                        return content[start:i + 1]
 
         raise ValueError("No JSON found in response")

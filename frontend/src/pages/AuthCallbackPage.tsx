@@ -21,7 +21,8 @@ export default function AuthCallbackPage() {
     const providerError = searchParams.get('error');
 
     if (providerError) {
-      navigate(`/login?error=${encodeURIComponent(`Google login failed: ${providerError}`)}`, { replace: true });
+      const safeError = providerError.slice(0, 200).replace(/[<>"']/g, '');
+      navigate(`/login?error=${encodeURIComponent(`Google login failed: ${safeError}`)}`, { replace: true });
       return;
     }
 
@@ -44,7 +45,7 @@ export default function AuthCallbackPage() {
         // Session cookie is set automatically by the backend response.
         // We only store the non-sensitive user profile for UI display.
         loginRef.current(response.user);
-        sessionStorage.setItem(callbackLockKey, 'done');
+        sessionStorage.removeItem(callbackLockKey);
         navigate('/', { replace: true });
       })
       .catch((err) => {

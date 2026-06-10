@@ -3,7 +3,7 @@ import asyncio
 import json
 from pathlib import Path
 from typing import List, Optional
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import aiofiles
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status, Query
@@ -13,10 +13,12 @@ from sqlalchemy import select, desc, func
 
 from app.db.session import get_db
 from app.api.deps import get_current_user
+from app.api.utils import parse_date_param
 from app.models.auth_user import AuthUser
 from app.models.batch_import import BatchImport
 from app.models.batch_import_candidate import BatchImportCandidate
 from app.models.batch_log import BatchLog
+from app.models.document import Document
 from app.models.enums import BatchImportStatus, BatchCandidateStatus
 from app.services.batch.parser import parse_import_file, ParseError, ParsedCandidate
 from app.services.batch.orchestrator import BatchOrchestrator
@@ -27,6 +29,7 @@ from app.schemas.batch import (
     BatchDetailResponse,
     BatchLogResponse,
 )
+from app.schemas.document import DocumentResponse
 from app.core.config import settings
 from app.core.logging import get_logger
 
@@ -34,6 +37,7 @@ router = APIRouter(prefix="/batch")
 logger = get_logger("api.batch")
 
 from app.services.task_manager import task_manager, TaskType
+from app.services.task_dispatcher import task_dispatcher
 
 ALLOWED_IMPORT_EXTENSIONS = {".csv", ".xlsx", ".xls"}
 
@@ -55,20 +59,29 @@ async def upload_batch_file(
             detail=f"Unsupported file format: {ext}. Use .csv or .xlsx",
         )
 
-    # Stream file and enforce size limit during read
+    # Stream file and enforce size limit during read — write directly to disk
     max_size = 10 * 1024 * 1024  # 10MB
     chunk_size = 64 * 1024  # 64KB chunks
-    chunks = []
+
+    stored_name = f"{uuid.uuid4().hex}{ext}"
+    file_dir = settings.upload_path / "batch_imports"
+    file_dir.mkdir(parents=True, exist_ok=True)
+    file_path = file_dir / stored_name
+
     total_size = 0
-    while True:
-        chunk = await file.read(chunk_size)
-        if not chunk:
-            break
-        total_size += len(chunk)
-        if total_size > max_size:
-            raise HTTPException(status_code=400, detail="Import file must be under 10MB")
-        chunks.append(chunk)
-    file_bytes = b"".join(chunks)
+    try:
+        async with aiofiles.open(file_path, "wb") as f:
+            while True:
+                chunk = await file.read(chunk_size)
+                if not chunk:
+                    break
+                total_size += len(chunk)
+                if total_size > max_size:
+                    raise HTTPException(status_code=400, detail="Import file must be under 10MB")
+                await f.write(chunk)
+    except HTTPException:
+        file_path.unlink(missing_ok=True)
+        raise
 
     correlation_id = str(uuid.uuid4())
 
@@ -82,13 +95,6 @@ async def upload_batch_file(
     )
     seq = (count_result.scalar() or 0) + 1
     batch_code = f"{prefix}{seq:03d}"
-
-    stored_name = f"{uuid.uuid4().hex}{ext}"
-    file_dir = settings.upload_path / "batch_imports"
-    file_dir.mkdir(parents=True, exist_ok=True)
-    file_path = file_dir / stored_name
-    async with aiofiles.open(file_path, "wb") as f:
-        await f.write(file_bytes)
 
     # Create batch import record
     batch = BatchImport(
@@ -177,12 +183,8 @@ async def start_batch_processing(
     batch.status = BatchImportStatus.PROCESSING.value
     await db.commit()
 
-    # Submit to centralized task manager with concurrency control
-    task_manager.submit(
-        _process_batch_background(batch_id),
-        task_type=TaskType.BATCH_PROCESSING,
-        name=f"batch-{batch_id[:8]}",
-    )
+    # Dispatch to Celery (if enabled) or in-process task manager
+    task_dispatcher.dispatch_batch_processing(batch_id)
 
     return BatchImportResponse.model_validate(batch)
 
@@ -203,19 +205,13 @@ async def list_batch_imports(
     if status_filter:
         query = query.where(BatchImport.status == status_filter)
     if date_from:
-        try:
-            dt_from = datetime.strptime(date_from, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-            query = query.where(BatchImport.created_at >= dt_from)
-        except ValueError:
-            pass
+        dt_from = parse_date_param(date_from, "date_from").replace(tzinfo=timezone.utc)
+        query = query.where(BatchImport.created_at >= dt_from)
     if date_to:
-        try:
-            dt_to = datetime.strptime(date_to, "%Y-%m-%d").replace(
-                hour=23, minute=59, second=59, tzinfo=timezone.utc
-            )
-            query = query.where(BatchImport.created_at <= dt_to)
-        except ValueError:
-            pass
+        dt_to = parse_date_param(date_to, "date_to").replace(
+            hour=23, minute=59, second=59, tzinfo=timezone.utc
+        )
+        query = query.where(BatchImport.created_at <= dt_to)
 
     result = await db.execute(query.offset(skip).limit(limit))
     batches = result.scalars().all()
@@ -267,6 +263,36 @@ async def list_batch_candidates(
     return [BatchCandidateResponse.model_validate(c) for c in candidates]
 
 
+@router.get("/{batch_id}/documents", response_model=List[DocumentResponse])
+async def list_batch_documents(
+    batch_id: str,
+    db: AsyncSession = Depends(get_db),
+    _current_user: AuthUser = Depends(get_current_user),
+):
+    """Get all documents belonging to candidates in a batch import."""
+    # Verify batch exists
+    result = await db.execute(select(BatchImport).where(BatchImport.id == batch_id))
+    batch = result.scalar_one_or_none()
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+
+    # Single JOIN query: Documents → BatchImportCandidates (replaces 2-step IN pattern)
+    doc_result = await db.execute(
+        select(Document)
+        .join(
+            BatchImportCandidate,
+            (Document.candidate_id == BatchImportCandidate.candidate_id)
+            & (BatchImportCandidate.batch_import_id == batch_id)
+            & (BatchImportCandidate.candidate_id.is_not(None)),
+        )
+        .where(Document.created_at >= batch.created_at)
+        .order_by(Document.created_at.desc())
+    )
+    documents = doc_result.scalars().all()
+
+    return [DocumentResponse.model_validate(doc) for doc in documents]
+
+
 @router.post("/{batch_id}/candidates/{candidate_id}/retry", response_model=BatchCandidateResponse)
 async def retry_batch_candidate(
     batch_id: str,
@@ -288,11 +314,7 @@ async def retry_batch_candidate(
     if bc.status not in (BatchCandidateStatus.FAILED.value, BatchCandidateStatus.NO_DOCUMENTS.value):
         raise HTTPException(status_code=400, detail=f"Candidate is in '{bc.status}' state. Only 'failed' or 'no_documents' can be retried.")
 
-    task_manager.submit(
-        _retry_candidate_background(batch_id, candidate_id),
-        task_type=TaskType.BATCH_PROCESSING,
-        name=f"retry-{candidate_id[:8]}",
-    )
+    task_dispatcher.dispatch_retry_candidate(batch_id, candidate_id)
     return BatchCandidateResponse.model_validate(bc)
 
 
@@ -364,73 +386,150 @@ async def stream_batch_logs(
 
 
 async def _log_stream_generator(batch_id: str, after_id: Optional[str]):
-    """Generator for SSE log streaming."""
+    """Generator for SSE log streaming.
+
+    Uses Redis Pub/Sub for real-time event delivery when available.
+    Falls back to DB polling (5-second interval) when Redis is unavailable.
+    """
     from app.db.session import AsyncSessionLocal
+    from app.services.pubsub import subscribe_batch_events
 
     last_id = after_id
     consecutive_empty = 0
-    max_empty = 120  # ~2 minutes of no new logs before closing
+    max_empty = 60  # ~5 minutes at 5s interval before closing
 
-    # Use a single session for the entire stream to avoid connection pool churn
     async with AsyncSessionLocal() as db:
-        while True:
-            query = (
-                select(BatchLog)
-                .where(BatchLog.batch_import_id == batch_id)
-                .order_by(BatchLog.created_at)
-                .limit(100)
+        # First: emit any existing logs since after_id (catch-up)
+        async for event_text in _catchup_logs(db, batch_id, last_id):
+            yield event_text
+            # Update last_id from the yielded data
+            try:
+                data = json.loads(event_text.replace("data: ", "").strip())
+                if "id" in data:
+                    last_id = data["id"]
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+        # Try Redis Pub/Sub for real-time streaming
+        pubsub_task = asyncio.create_task(_stream_via_pubsub(batch_id))
+
+        try:
+            # Hybrid loop: check pubsub queue + periodic DB poll for completeness
+            pubsub_queue: asyncio.Queue = asyncio.Queue()
+            listener_task = asyncio.create_task(
+                _pubsub_listener(batch_id, pubsub_queue)
             )
-            if last_id:
-                # Get the timestamp of the last seen log
-                last_result = await db.execute(
-                    select(BatchLog.created_at).where(BatchLog.id == last_id)
+
+            while True:
+                # Drain any pubsub events (non-blocking)
+                events_received = False
+                while not pubsub_queue.empty():
+                    try:
+                        event_data = pubsub_queue.get_nowait()
+                        data_str = json.dumps(event_data)
+                        yield f"data: {data_str}\n\n"
+                        if "id" in event_data:
+                            last_id = event_data["id"]
+                        events_received = True
+                        consecutive_empty = 0
+                    except asyncio.QueueEmpty:
+                        break
+
+                if not events_received:
+                    # Fallback: poll DB for any missed logs
+                    found_logs = False
+                    async for event_text in _catchup_logs(db, batch_id, last_id):
+                        yield event_text
+                        found_logs = True
+                        try:
+                            data = json.loads(event_text.replace("data: ", "").strip())
+                            if "id" in data:
+                                last_id = data["id"]
+                        except (json.JSONDecodeError, ValueError):
+                            pass
+
+                    if found_logs:
+                        consecutive_empty = 0
+                    else:
+                        consecutive_empty += 1
+
+                # Check batch completion
+                batch_result = await db.execute(
+                    select(BatchImport.status).where(BatchImport.id == batch_id)
                 )
-                last_ts = last_result.scalar_one_or_none()
-                if last_ts:
-                    query = query.where(BatchLog.created_at > last_ts)
+                batch_status = batch_result.scalar_one_or_none()
 
-            result = await db.execute(query)
-            logs = result.scalars().all()
+                if batch_status in (
+                    BatchImportStatus.COMPLETED.value,
+                    BatchImportStatus.COMPLETED_WITH_ERRORS.value,
+                    BatchImportStatus.FAILED.value,
+                ) and consecutive_empty >= 3:
+                    yield f"data: {json.dumps({'type': 'complete', 'status': batch_status})}\n\n"
+                    return
 
-            if logs:
-                consecutive_empty = 0
-                for log in logs:
-                    data = json.dumps({
-                        "id": log.id,
-                        "level": log.level,
-                        "stage": log.stage,
-                        "message": log.message,
-                        "details": log.details,
-                        "batch_candidate_id": log.batch_candidate_id,
-                        "created_at": log.created_at.isoformat(),
-                    })
-                    yield f"data: {data}\n\n"
-                    last_id = log.id
-            else:
-                consecutive_empty += 1
+                if consecutive_empty >= max_empty:
+                    yield f"data: {json.dumps({'type': 'timeout'})}\n\n"
+                    return
 
-            # Check if batch is complete
-            batch_result = await db.execute(
-                select(BatchImport.status).where(BatchImport.id == batch_id)
-            )
-            batch_status = batch_result.scalar_one_or_none()
+                db.expire_all()
+                await asyncio.sleep(5)  # Reduced polling frequency (pubsub handles real-time)
 
-            if batch_status in (
-                BatchImportStatus.COMPLETED.value,
-                BatchImportStatus.COMPLETED_WITH_ERRORS.value,
-                BatchImportStatus.FAILED.value,
-            ) and consecutive_empty >= 3:
-                # Send final event
-                yield f"data: {json.dumps({'type': 'complete', 'status': batch_status})}\n\n"
-                return
+        finally:
+            pubsub_task.cancel()
+            if not listener_task.done():
+                listener_task.cancel()
 
-            if consecutive_empty >= max_empty:
-                yield f"data: {json.dumps({'type': 'timeout'})}\n\n"
-                return
 
-            # Expire cached ORM state so next iteration sees fresh data
-            db.expire_all()
-            await asyncio.sleep(1)
+async def _catchup_logs(db, batch_id: str, last_id: Optional[str]):
+    """Yield SSE events for logs newer than last_id."""
+    query = (
+        select(BatchLog)
+        .where(BatchLog.batch_import_id == batch_id)
+        .order_by(BatchLog.created_at)
+        .limit(100)
+    )
+    if last_id:
+        last_result = await db.execute(
+            select(BatchLog.created_at).where(BatchLog.id == last_id)
+        )
+        last_ts = last_result.scalar_one_or_none()
+        if last_ts:
+            query = query.where(BatchLog.created_at > last_ts)
+
+    result = await db.execute(query)
+    logs = result.scalars().all()
+
+    for log in logs:
+        data = json.dumps({
+            "id": log.id,
+            "level": log.level,
+            "stage": log.stage,
+            "message": log.message,
+            "details": log.details,
+            "batch_candidate_id": log.batch_candidate_id,
+            "created_at": log.created_at.isoformat(),
+        })
+        yield f"data: {data}\n\n"
+
+
+async def _pubsub_listener(batch_id: str, queue: asyncio.Queue):
+    """Listen to Redis Pub/Sub and put events into the queue."""
+    try:
+        from app.services.pubsub import subscribe_batch_events
+        async for event_data in subscribe_batch_events(batch_id):
+            await queue.put(event_data)
+    except asyncio.CancelledError:
+        return
+    except Exception:
+        return
+
+
+async def _stream_via_pubsub(batch_id: str):
+    """Placeholder task to keep pubsub context alive."""
+    try:
+        await asyncio.sleep(3600)  # Keep alive until cancelled
+    except asyncio.CancelledError:
+        return
 
 
 async def _process_batch_background(batch_import_id: str):

@@ -45,11 +45,19 @@ class UploadBatchResponse(BaseModel):
         from_attributes = True
 
 
+class UploadDocumentItem(BaseModel):
+    id: str
+    filename: str
+    size_bytes: int
+    mime_type: str
+    status: str
+
+
 class UploadResponse(BaseModel):
     batch_id: str
     batch_reference: str
     candidate_id: str
-    documents: List[dict]
+    documents: List[UploadDocumentItem]
     total_files: int
     correlation_id: str
     message: str

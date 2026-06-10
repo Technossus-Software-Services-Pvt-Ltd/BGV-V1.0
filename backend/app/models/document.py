@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, DateTime, Integer, Float, Text, ForeignKey, Boolean
+from sqlalchemy import Column, String, DateTime, Integer, Float, Text, ForeignKey, Boolean, UniqueConstraint
 from sqlalchemy.orm import relationship
 from app.db.base import Base
 from app.models.enums import ProcessingStatus
@@ -18,11 +18,13 @@ class Document(Base):
     file_path = Column(String(500), nullable=False)
     file_size_bytes = Column(Integer, nullable=False)
     mime_type = Column(String(100), nullable=False)
+    file_hash = Column(String(64), nullable=True, index=True)
     total_pages = Column(Integer, default=1)
     processing_status = Column(String(50), default=ProcessingStatus.UPLOADED.value, nullable=False, index=True)
     is_multi_page = Column(Boolean, default=False)
     correlation_id = Column(String(36), nullable=False, index=True)
     error_message = Column(Text, nullable=True)
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
@@ -39,6 +41,9 @@ class Document(Base):
 
 class DocumentPage(Base):
     __tablename__ = "document_pages"
+    __table_args__ = (
+        UniqueConstraint("document_id", "page_number", name="uq_document_pages_document_id_page_number"),
+    )
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     document_id = Column(String(36), ForeignKey("documents.id"), nullable=False, index=True)

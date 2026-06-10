@@ -131,6 +131,11 @@ export async function getBatchDetail(batchId: string): Promise<BatchDetail> {
   return response.data;
 }
 
+export async function listBatchDocuments(batchId: string): Promise<DocumentListItem[]> {
+  const response = await api.get(`/batch/${batchId}/documents`);
+  return response.data;
+}
+
 export async function listBatchCandidates(
   batchId: string,
   statusFilter?: string,
@@ -149,69 +154,6 @@ export async function retryBatchCandidate(
   return response.data;
 }
 
-export function createBatchLogStream(batchId: string): { close: () => void; onMessage: (handler: (event: string, data: string) => void) => void } {
-  const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api/v1';
-  const url = `${baseUrl}/batch/${batchId}/logs`;
-
-  let aborted = false;
-  const controller = new AbortController();
-  let messageHandler: ((event: string, data: string) => void) | null = null;
-
-  // Use fetch with credentials (httpOnly cookie sent automatically)
-  (async () => {
-    try {
-      const response = await fetch(url, {
-        headers: {
-          'Accept': 'text/event-stream',
-        },
-        credentials: 'include',
-        signal: controller.signal,
-      });
-
-      if (!response.ok || !response.body) return;
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (!aborted) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        let currentEvent = 'message';
-        let dataLines: string[] = [];
-
-        for (const line of lines) {
-          if (line.startsWith('event:')) {
-            currentEvent = line.slice(6).trim();
-          } else if (line.startsWith('data:')) {
-            dataLines.push(line.slice(5).trim());
-          } else if (line === '' && dataLines.length > 0) {
-            messageHandler?.(currentEvent, dataLines.join('\n'));
-            currentEvent = 'message';
-            dataLines = [];
-          }
-        }
-      }
-    } catch {
-      // Connection closed or aborted
-    }
-  })();
-
-  return {
-    close: () => {
-      aborted = true;
-      controller.abort();
-    },
-    onMessage: (handler) => {
-      messageHandler = handler;
-    },
-  };
-}
 export interface BatchLogItem {
   id: string;
   batch_import_id: string;

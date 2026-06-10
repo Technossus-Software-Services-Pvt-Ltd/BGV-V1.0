@@ -3,7 +3,7 @@
 import time
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.models.document import Document
 from app.models.upload_batch import UploadBatch
@@ -86,19 +86,27 @@ class PersistenceStage:
         await self.db.flush()
 
     async def _update_batch_progress(self, batch_id: str, success: bool) -> None:
-        """Update upload batch counters."""
+        """Atomically update upload batch counters."""
+        if success:
+            await self.db.execute(
+                update(UploadBatch)
+                .where(UploadBatch.id == batch_id)
+                .values(processed_files=UploadBatch.processed_files + 1)
+            )
+        else:
+            await self.db.execute(
+                update(UploadBatch)
+                .where(UploadBatch.id == batch_id)
+                .values(failed_files=UploadBatch.failed_files + 1)
+            )
+
+        # Re-read after atomic update to check completion
         result = await self.db.execute(select(UploadBatch).where(UploadBatch.id == batch_id))
         batch = result.scalar_one_or_none()
         if batch:
-            if success:
-                batch.processed_files = (batch.processed_files or 0) + 1
-            else:
-                batch.failed_files = (batch.failed_files or 0) + 1
-
             total_done = (batch.processed_files or 0) + (batch.failed_files or 0)
             if total_done >= batch.total_files:
                 batch.processing_status = ProcessingStatus.COMPLETED.value
             else:
-                batch.processing_status = ProcessingStatus.OCR_RUNNING.value
-
+                batch.processing_status = ProcessingStatus.QUEUED.value
             await self.db.flush()

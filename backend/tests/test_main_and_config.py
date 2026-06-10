@@ -85,7 +85,8 @@ class TestCoreConfig:
         upload = tmp_path / "new_uploads"
         s = Settings(environment="development", upload_dir=str(upload), _env_file=None)
         path = s.upload_path
-        assert path.exists()
+        # upload_path no longer creates dir (done at startup); verify it returns correct Path
+        assert path == upload
 
     def test_production_requires_database_url(self):
         from app.core.config import Settings

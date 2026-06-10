@@ -20,6 +20,7 @@ logger = get_logger("api.review_queue")
 router = APIRouter()
 
 from app.services.task_manager import task_manager, TaskType
+from app.services.task_dispatcher import task_dispatcher
 
 
 REVIEW_STATUSES = [
@@ -93,18 +94,30 @@ async def list_review_queue(
     )
     rows = results.all()
 
-    # Get latest notification status per candidate
+    # Get latest notification status per candidate using a subquery for max created_at
     candidate_ids = [row[0].id for row in rows]
     notification_map = {}
     if candidate_ids:
+        # Subquery: latest notification per candidate
+        latest_notif_subq = (
+            select(
+                NotificationLog.candidate_id,
+                func.max(NotificationLog.created_at).label("max_created"),
+            )
+            .where(NotificationLog.candidate_id.in_(candidate_ids))
+            .group_by(NotificationLog.candidate_id)
+            .subquery()
+        )
         notif_result = await db.execute(
             select(NotificationLog)
-            .where(NotificationLog.candidate_id.in_(candidate_ids))
-            .order_by(NotificationLog.created_at.desc())
+            .join(
+                latest_notif_subq,
+                (NotificationLog.candidate_id == latest_notif_subq.c.candidate_id)
+                & (NotificationLog.created_at == latest_notif_subq.c.max_created),
+            )
         )
         for notif in notif_result.scalars().all():
-            if notif.candidate_id not in notification_map:
-                notification_map[notif.candidate_id] = notif
+            notification_map[notif.candidate_id] = notif
 
     items = [
         ReviewQueueItem(
@@ -176,11 +189,7 @@ async def notify_candidates(
 
     # Fire background task - does NOT block the response
     logger.info("notify_queued", log_ids=log_ids, count=len(log_ids))
-    task_manager.submit(
-        NotificationService.send_notifications_background(log_ids),
-        task_type=TaskType.NOTIFICATION,
-        name=f"notify-batch-{len(log_ids)}",
-    )
+    task_dispatcher.dispatch_notifications(log_ids)
 
     return NotifyResponse(
         queued=len(log_ids),
@@ -228,10 +237,6 @@ async def retry_notification(
     log_entry.error_message = None
     await db.commit()
 
-    task_manager.submit(
-        NotificationService.send_notifications_background([log_entry.id]),
-        task_type=TaskType.NOTIFICATION,
-        name=f"notify-retry-{log_entry.id[:8]}",
-    )
+    task_dispatcher.dispatch_notifications([log_entry.id])
 
     return {"message": "Notification retry queued"}

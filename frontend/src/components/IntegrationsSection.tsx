@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   getGmailAuthUrl,
   getGmailStatus,
@@ -25,17 +25,22 @@ export default function IntegrationsSection({ onError, onSuccess }: Integrations
   const [isEditingDrive, setIsEditingDrive] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
+  const onSuccessRef = useRef(onSuccess);
+  onSuccessRef.current = onSuccess;
+
   const loadStatus = useCallback(async () => {
     try {
       const [status, drive] = await Promise.all([getGmailStatus(), getDriveConfig()]);
       setGmailStatus(status);
       setStorageRootInput(drive.storage_root_folder_id || '');
     } catch {
-      onError('Failed to load integration settings');
+      onErrorRef.current('Failed to load integration settings');
     } finally {
       setLoading(false);
     }
-  }, [onError]);
+  }, []);
 
   useEffect(() => { loadStatus(); }, [loadStatus]);
 
@@ -43,13 +48,13 @@ export default function IntegrationsSection({ onError, onSuccess }: Integrations
     const handler = (event: MessageEvent) => {
       if (event.data?.type === 'gmail-oauth-success') {
         setConnecting(false);
-        onSuccess('Gmail connected successfully!');
+        onSuccessRef.current('Gmail connected successfully!');
         loadStatus();
       }
     };
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
-  }, [loadStatus, onSuccess]);
+  }, [loadStatus]);
 
   const handleConnect = async () => {
     setConnecting(true);
@@ -59,9 +64,14 @@ export default function IntegrationsSection({ onError, onSuccess }: Integrations
       const w = 600, h = 700;
       const left = window.screenX + (window.outerWidth - w) / 2;
       const top = window.screenY + (window.outerHeight - h) / 2;
-      window.open(auth_url, 'gmail-oauth', `width=${w},height=${h},left=${left},top=${top}`);
+      const popup = window.open(auth_url, 'gmail-oauth', `width=${w},height=${h},left=${left},top=${top}`);
+      if (!popup || popup.closed) {
+        onErrorRef.current('Popup was blocked by your browser. Please allow popups for this site and try again.');
+        setConnecting(false);
+        return;
+      }
     } catch {
-      onError('Failed to start Google login. Check server configuration.');
+      onErrorRef.current('Failed to start Google login. Check server configuration.');
       setConnecting(false);
     }
   };
@@ -71,10 +81,10 @@ export default function IntegrationsSection({ onError, onSuccess }: Integrations
     setTestResult(null);
     try {
       await disconnectGmail();
-      onSuccess('Gmail disconnected');
+      onSuccessRef.current('Gmail disconnected');
       await loadStatus();
     } catch {
-      onError('Failed to disconnect');
+      onErrorRef.current('Failed to disconnect');
     } finally {
       setDisconnecting(false);
     }
@@ -97,11 +107,11 @@ export default function IntegrationsSection({ onError, onSuccess }: Integrations
     setSavingDrive(true);
     try {
       await updateDriveConfig({ search_folder_ids: [], storage_root_folder_id: storageRootInput.trim() || null });
-      onSuccess('Drive configuration saved');
+      onSuccessRef.current('Drive configuration saved');
       await loadStatus();
       setIsEditingDrive(false);
     } catch {
-      onError('Failed to save Drive configuration');
+      onErrorRef.current('Failed to save Drive configuration');
     } finally {
       setSavingDrive(false);
     }

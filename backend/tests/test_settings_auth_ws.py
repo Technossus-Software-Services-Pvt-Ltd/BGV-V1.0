@@ -64,7 +64,9 @@ class TestExtractSessionToken:
 
 class TestResolveRedirectUri:
     def test_explicit_redirect_uri(self):
-        result = _resolve_redirect_uri(None, "http://example.com/callback")
+        with patch("app.api.routes.auth.settings") as mock_settings:
+            mock_settings.cors_origins_list = ["http://example.com"]
+            result = _resolve_redirect_uri(None, "http://example.com/callback")
         assert result == "http://example.com/callback"
 
     def test_from_origin_header(self):
@@ -74,7 +76,9 @@ class TestResolveRedirectUri:
             "origin": "http://localhost:3000",
             "referer": "",
         }.get(k, d))
-        result = _resolve_redirect_uri(request, None)
+        with patch("app.api.routes.auth.settings") as mock_settings:
+            mock_settings.cors_origins_list = ["http://localhost:3000"]
+            result = _resolve_redirect_uri(request, None)
         assert result == "http://localhost:3000/auth/callback"
 
     def test_from_referer_header(self):
@@ -83,13 +87,16 @@ class TestResolveRedirectUri:
             "origin": "",
             "referer": "https://app.example.com/dashboard",
         }.get(k, d))
-        result = _resolve_redirect_uri(request, None)
+        with patch("app.api.routes.auth.settings") as mock_settings:
+            mock_settings.cors_origins_list = ["https://app.example.com"]
+            result = _resolve_redirect_uri(request, None)
         assert result == "https://app.example.com/auth/callback"
 
     def test_fallback_to_settings(self):
         request = MagicMock()
         request.headers.get = MagicMock(return_value="")
         with patch("app.api.routes.auth.settings") as mock_settings:
+            mock_settings.cors_origins_list = []
             mock_settings.google_redirect_uri = "http://default/callback"
             result = _resolve_redirect_uri(request, None)
         assert result == "http://default/callback"

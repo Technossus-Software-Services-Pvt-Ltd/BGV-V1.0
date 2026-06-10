@@ -46,18 +46,26 @@ class ClassificationStage:
             processing_stage="ai_classification",
         )
 
-        # Classify each page individually for multi-page docs
+        # For single-page documents, skip per-page classification since the
+        # full-doc classification uses identical text — saves 1 LLM call (~5-7s on CPU).
         page_classifications = []
-        for page in pages:
-            classification = await self._classify_page(document, page, correlation_id)
-            if classification:
-                page_classifications.append(PageClassification(
-                    page_number=page.page_number,
-                    document_type=classification.document_type,
-                    confidence=classification.confidence_score,
-                ))
+        if len(pages) > 1:
+            for page in pages:
+                classification = await self._classify_page(document, page, correlation_id)
+                if classification:
+                    page_classifications.append(PageClassification(
+                        page_number=page.page_number,
+                        document_type=classification.document_type,
+                        confidence=classification.confidence_score,
+                    ))
+        else:
+            logger.info(
+                "skip_per_page_classification",
+                document_id=document_id,
+                reason="single_page_doc",
+            )
 
-        # Also classify the full document
+        # Classify the full document (always — this is the primary classification)
         full_classification = await self._classify_full_document(
             document, ctx.combined_text, ctx.avg_confidence, correlation_id
         )

@@ -82,7 +82,7 @@ export default function ManualUploadForm({ onError }: ManualUploadFormProps) {
             <p className="text-sm text-gray-600">Click to select document files</p>
             <p className="text-xs text-gray-400">PDF, JPEG, PNG up to 15MB each. Max 20 files.</p>
           </div>
-          <input ref={fileInputRef} type="file" multiple accept=".pdf,.jpg,.jpeg,.png" aria-label="Select document files" onChange={(e) => { if (e.target.files) setFiles((prev) => [...prev, ...Array.from(e.target.files!)].slice(0, 20)); }} className="hidden" />
+          <input ref={fileInputRef} type="file" multiple accept=".pdf,.jpg,.jpeg,.png" aria-label="Select document files" onChange={(e) => { const newFiles = e.target.files; if (newFiles) { const MAX_SIZE = 15 * 1024 * 1024; const valid = Array.from(newFiles).filter(f => f.size <= MAX_SIZE); if (valid.length < newFiles.length) { onError(`${newFiles.length - valid.length} file(s) exceed 15MB limit`); } setFiles((prev) => [...prev, ...valid].slice(0, 20)); } }} className="hidden" />
 
           {files.length > 0 && (
             <div className="space-y-1">

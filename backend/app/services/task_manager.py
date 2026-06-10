@@ -156,12 +156,14 @@ class TaskManager:
 
         exc = task.exception()
         if exc:
+            import traceback
+            tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
             logger.error(
                 "background_task_failed",
                 name=task.get_name(),
                 task_type=self._task_types.get(task, "unknown"),
                 error=str(exc),
-                exc_info=exc,
+                traceback=tb,
             )
 
 

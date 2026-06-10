@@ -67,9 +67,10 @@ class TestSettingsGmailCallback:
         from app.api.routes.settings import _callback_attempts, _CALLBACK_RATE_LIMIT
         import time
 
-        # Manually fill the rate limit bucket
-        test_ip = "testclient"
-        _callback_attempts[test_ip] = [time.monotonic()] * (_CALLBACK_RATE_LIMIT + 1)
+        # Test client IP is "127.0.0.1" in httpx/ASGI transport
+        test_ip = "127.0.0.1"
+        now = time.monotonic()
+        _callback_attempts[test_ip] = [now] * (_CALLBACK_RATE_LIMIT)
 
         resp = await authenticated_client.get(
             "/api/v1/settings/integrations/gmail/callback?code=test&state=test"

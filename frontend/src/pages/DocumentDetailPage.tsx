@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { getDocumentDetail, getProcessingTimeline, checkHealth } from '../api/endpoints';
 import { DocumentDetail, ProcessingTimeline } from '../types';
 import StatusBadge from '../components/StatusBadge';
@@ -21,6 +21,7 @@ const TAB_CONFIG = [
 
 export default function DocumentDetailPage() {
   const { documentId } = useParams<{ documentId: string }>();
+  const navigate = useNavigate();
   const [detail, setDetail] = useState<DocumentDetail | null>(null);
   const [timeline, setTimeline] = useState<ProcessingTimeline | null>(null);
   const [loading, setLoading] = useState(true);
@@ -60,8 +61,9 @@ export default function DocumentDetailPage() {
   }, [loadData]);
 
   // Auto-poll while processing is in progress (only when tab is visible)
+  const processingStatus = detail?.document.processing_status;
   useEffect(() => {
-    if (!detail || TERMINAL_STATUSES.includes(detail.document.processing_status)) return;
+    if (!processingStatus || TERMINAL_STATUSES.includes(processingStatus)) return;
 
     const poll = () => {
       if (document.visibilityState === 'visible') {
@@ -78,7 +80,7 @@ export default function DocumentDetailPage() {
       clearInterval(id);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [detail?.document.processing_status]);
+  }, [processingStatus]);
 
   if (loading) return <LoadingSpinner message="Loading document details..." />;
   if (error) return <ErrorMessage message={error} onRetry={loadData} />;
@@ -100,7 +102,7 @@ export default function DocumentDetailPage() {
       {/* Back + Header */}
       <div className="flex items-start gap-4">
         <button
-          onClick={() => window.history.length > 1 ? window.history.back() : window.location.assign('/batch-history')}
+          onClick={() => navigate(-1)}
           className="mt-1 shrink-0 h-9 w-9 rounded-xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-colors"
         >
           <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

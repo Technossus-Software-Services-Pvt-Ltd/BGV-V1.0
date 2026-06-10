@@ -116,12 +116,14 @@ class TestDependencyProviders:
 class TestProcessingPipelineDI:
     """Verify ProcessingPipeline constructor injection."""
 
-    def test_default_construction_still_works(self):
-        """Backward compat: ProcessingPipeline(db) still works."""
+    def test_default_construction_requires_services(self):
+        """ProcessingPipeline requires all services to be passed explicitly."""
         mock_db = MagicMock()
         from app.services.processing.pipeline import ProcessingPipeline
 
-        pipeline = ProcessingPipeline(mock_db)
+        # Verify it works when all services are provided via factory
+        from app.services.dependencies import get_processing_pipeline
+        pipeline = get_processing_pipeline(mock_db)
         assert pipeline.db is mock_db
         assert pipeline.ocr_engine is not None
         assert pipeline.ai_classifier is not None
@@ -147,6 +149,7 @@ class TestProcessingPipelineDI:
             mock_db,
             ocr_engine=mock_ocr,
             preprocessor=mock_preprocessor,
+            confidence_evaluator=MagicMock(),
             ai_classifier=mock_classifier,
             ownership_validator=mock_validator,
             normalizer=mock_normalizer,

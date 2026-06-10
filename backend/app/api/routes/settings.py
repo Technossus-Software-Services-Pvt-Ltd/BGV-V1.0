@@ -48,15 +48,26 @@ GOOGLE_SCOPES = [
 _callback_attempts: dict[str, list[float]] = defaultdict(list)
 _CALLBACK_RATE_LIMIT = 5
 _CALLBACK_RATE_WINDOW = 60  # seconds
+_CALLBACK_MAX_ENTRIES = 10000  # Prevent unbounded memory growth
 
 
 def _check_callback_rate_limit(client_ip: str) -> bool:
     """Return True if rate limit exceeded."""
     now = time.monotonic()
     attempts = _callback_attempts[client_ip]
-    # Prune old entries
-    _callback_attempts[client_ip] = [t for t in attempts if now - t < _CALLBACK_RATE_WINDOW]
-    if len(_callback_attempts[client_ip]) >= _CALLBACK_RATE_LIMIT:
+    # Prune expired timestamps for this IP
+    valid = [t for t in attempts if now - t < _CALLBACK_RATE_WINDOW]
+    if not valid:
+        # Remove empty entries to prevent memory leak
+        _callback_attempts.pop(client_ip, None)
+        if len(_callback_attempts) > _CALLBACK_MAX_ENTRIES:
+            # Evict oldest entries if at capacity
+            oldest_key = next(iter(_callback_attempts))
+            _callback_attempts.pop(oldest_key, None)
+        _callback_attempts[client_ip] = [now]
+        return False
+    _callback_attempts[client_ip] = valid
+    if len(valid) >= _CALLBACK_RATE_LIMIT:
         return True
     _callback_attempts[client_ip].append(now)
     return False

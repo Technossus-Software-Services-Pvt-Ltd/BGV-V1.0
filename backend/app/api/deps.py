@@ -7,9 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
+from app.core.logging import get_logger
 from app.db.session import get_db
 from app.models.auth_session import AuthSession
 from app.models.auth_user import AuthUser
+
+_auth_logger = get_logger("auth")
 
 
 async def get_database(db: AsyncSession = Depends(get_db)) -> AsyncSession:
@@ -49,6 +52,13 @@ async def get_current_user(
     """
     token = _extract_token(request)
     if not token:
+        _auth_logger.warning(
+            "auth_failed",
+            reason="no_token",
+            ip=request.client.host if request.client else "unknown",
+            user_agent=request.headers.get("user-agent", "")[:100],
+            path=str(request.url.path),
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required",
@@ -67,6 +77,13 @@ async def get_current_user(
     session = result.scalar_one_or_none()
 
     if not session:
+        _auth_logger.warning(
+            "auth_failed",
+            reason="invalid_token",
+            ip=request.client.host if request.client else "unknown",
+            user_agent=request.headers.get("user-agent", "")[:100],
+            path=str(request.url.path),
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired session",

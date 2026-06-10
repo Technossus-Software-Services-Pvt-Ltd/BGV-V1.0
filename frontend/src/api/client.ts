@@ -14,7 +14,11 @@ const api = axios.create({
 let isHandling401 = false;
 
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // Reset 401 flag on successful response (allows re-login in same SPA session)
+    isHandling401 = false;
+    return response;
+  },
   (error) => {
     const status = error.response?.status;
 
@@ -23,8 +27,7 @@ api.interceptors.response.use(
       isHandling401 = true;
       clearStoredUser();
       window.dispatchEvent(new CustomEvent('auth:session-expired'));
-      // Reset after a macrotask to debounce concurrent 401s
-      setTimeout(() => { isHandling401 = false; }, 100);
+      // Don't reset — the page will redirect to /login. Flag resets on next full page load.
       return Promise.reject(new Error('Session expired'));
     }
 

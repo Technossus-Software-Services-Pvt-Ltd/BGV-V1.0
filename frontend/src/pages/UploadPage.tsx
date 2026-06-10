@@ -33,7 +33,8 @@ export default function UploadPage() {
     if (tab === 'history') {
       loadHistory();
     }
-  }, [tab]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, loadHistory]);
 
   const onBatchUpload = async () => {
     if (!batchFile) return;

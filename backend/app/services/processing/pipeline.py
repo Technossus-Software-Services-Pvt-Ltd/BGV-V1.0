@@ -3,7 +3,6 @@ import time
 import uuid
 import asyncio
 from pathlib import Path
-from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -51,33 +50,23 @@ class ProcessingPipeline:
         self,
         db: AsyncSession,
         *,
-        ocr_engine: Optional[PaddleOCREngine] = None,
-        preprocessor: Optional[DocumentPreprocessor] = None,
-        confidence_evaluator: Optional[OCRConfidenceEvaluator] = None,
-        ai_classifier: Optional[AIClassifier] = None,
-        ownership_validator: Optional[OwnershipValidator] = None,
-        normalizer: Optional[DocumentNormalizer] = None,
-        splitter: Optional[DocumentSplitter] = None,
-        audit_service: Optional[AuditService] = None,
+        ocr_engine: PaddleOCREngine,
+        preprocessor: DocumentPreprocessor,
+        confidence_evaluator: OCRConfidenceEvaluator,
+        ai_classifier: AIClassifier,
+        ownership_validator: OwnershipValidator,
+        normalizer: DocumentNormalizer,
+        splitter: DocumentSplitter,
+        audit_service: AuditService = None,
     ):
-        from app.services.dependencies import (
-            get_ocr_engine,
-            get_preprocessor,
-            get_confidence_evaluator,
-            get_ai_classifier,
-            get_ownership_validator,
-            get_normalizer,
-            get_splitter,
-        )
-
         self.db = db
-        self.ocr_engine = ocr_engine or get_ocr_engine()
-        self.preprocessor = preprocessor or get_preprocessor()
-        self.confidence_evaluator = confidence_evaluator or get_confidence_evaluator()
-        self.ai_classifier = ai_classifier or get_ai_classifier()
-        self.ownership_validator = ownership_validator or get_ownership_validator()
-        self.normalizer = normalizer or get_normalizer()
-        self.splitter = splitter or get_splitter()
+        self.ocr_engine = ocr_engine
+        self.preprocessor = preprocessor
+        self.confidence_evaluator = confidence_evaluator
+        self.ai_classifier = ai_classifier
+        self.ownership_validator = ownership_validator
+        self.normalizer = normalizer
+        self.splitter = splitter
         self.audit = audit_service or AuditService(db)
 
         # Initialize stages

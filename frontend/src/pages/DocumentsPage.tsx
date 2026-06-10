@@ -58,7 +58,11 @@ export default function DocumentsPage() {
 
   useEffect(() => {
     if (hasProcessingDocs && !pollRef.current) {
-      pollRef.current = setInterval(() => loadDataRef.current?.(false), 5000);
+      pollRef.current = setInterval(() => {
+        if (document.visibilityState === 'visible') {
+          loadDataRef.current?.(false);
+        }
+      }, 15000); // Poll every 15s (was 5s) — balances freshness vs API load
     } else if (!hasProcessingDocs && pollRef.current) {
       clearInterval(pollRef.current);
       pollRef.current = null;

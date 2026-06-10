@@ -6,6 +6,7 @@ from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+from app.core.config import settings
 from app.models.document import Document
 from app.models.batch_import import BatchImport
 from app.models.batch_import_candidate import BatchImportCandidate
@@ -69,7 +70,7 @@ class DriveUploadService:
                     clean_filename,
                 )
 
-                file_bytes = Path(doc.file_path).read_bytes()
+                file_bytes = settings.resolve_file_path(doc.file_path).read_bytes()
                 drive_service.upload_file(
                     storage_folder_id, resolved_filename, file_bytes, doc.mime_type
                 )

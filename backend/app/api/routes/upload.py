@@ -1,10 +1,13 @@
 import re
 import uuid
+import hashlib
 from pathlib import Path
 from typing import List, Optional
 
 import aiofiles
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, status, Request
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -24,15 +27,18 @@ from app.core.logging import get_logger
 
 router = APIRouter()
 logger = get_logger("api.upload")
+limiter = Limiter(key_func=get_remote_address)
 
 # Only allow alphanumeric, hyphens, and underscores for candidate IDs
 CANDIDATE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_\-]{1,100}$")
 
 # Centralized task manager
 from app.services.task_manager import task_manager, TaskType
+from app.services.task_dispatcher import task_dispatcher
 
 
 @router.post("/upload", response_model=UploadResponse, status_code=status.HTTP_202_ACCEPTED)
+@limiter.limit("30/minute")
 async def upload_documents(
     request: Request,
     candidate_id: str = Form(..., min_length=1, max_length=100),
@@ -109,11 +115,24 @@ async def upload_documents(
 
             file_size = 0
             header_bytes = b""
+            mime_validated = False
+            file_hasher = hashlib.sha256()
             async with aiofiles.open(file_path, "wb") as f:
                 while chunk := await file.read(1024 * 1024):  # 1MB chunks
                     if file_size == 0:
                         header_bytes = chunk[:2048]
+                        # Early MIME validation before writing entire file
+                        from app.core.security import _detect_mime_from_magic_bytes, ALLOWED_MIME_TYPES
+                        detected_mime = _detect_mime_from_magic_bytes(header_bytes)
+                        if detected_mime not in ALLOWED_MIME_TYPES:
+                            # Don't write more — will be cleaned up below
+                            await f.write(chunk)
+                            file_size += len(chunk)
+                            file_hasher.update(chunk)
+                            break
+                        mime_validated = True
                     file_size += len(chunk)
+                    file_hasher.update(chunk)
                     if file_size > settings.max_upload_size_bytes:
                         break
                     await f.write(chunk)
@@ -130,15 +149,47 @@ async def upload_documents(
             # Validate using streamed header bytes and total size
             detected_mime = validate_file_content(header_bytes, file.filename, file_size=file_size)
 
-            # Create document record
+            # Check for duplicate file (same content already uploaded for this candidate)
+            file_hash = file_hasher.hexdigest()
+            duplicate_result = await db.execute(
+                select(Document).where(
+                    Document.candidate_id == candidate.id,
+                    Document.file_hash == file_hash,
+                )
+            )
+            existing_duplicate = duplicate_result.scalar_one_or_none()
+            if existing_duplicate:
+                # Remove the duplicate file from disk
+                file_path.unlink(missing_ok=True)
+                written_files.remove(file_path)
+                logger.warning(
+                    "duplicate_file_skipped",
+                    candidate_id=candidate_id,
+                    filename=file.filename,
+                    existing_doc_id=existing_duplicate.id,
+                    correlation_id=correlation_id,
+                )
+                document_records.append({
+                    "id": existing_duplicate.id,
+                    "filename": file.filename,
+                    "size_bytes": file_size,
+                    "mime_type": detected_mime,
+                    "status": "duplicate_skipped",
+                    "duplicate_of": existing_duplicate.id,
+                })
+                continue
+
+            # Create document record — store relative path for portability
+            relative_path = f"{correlation_id}/{stored_name}"
             document = Document(
                 candidate_id=candidate.id,
                 upload_batch_id=batch.id,
                 original_filename=file.filename,
                 stored_filename=stored_name,
-                file_path=str(file_path),
+                file_path=relative_path,
                 file_size_bytes=file_size,
                 mime_type=detected_mime,
+                file_hash=file_hash,
                 processing_status=ProcessingStatus.UPLOADED.value,
                 correlation_id=correlation_id,
             )
@@ -176,11 +227,7 @@ async def upload_documents(
     # Queue background processing for each document (non-blocking asyncio tasks)
     logger.info("upload_complete", batch_reference=batch_reference, file_count=len(files), correlation_id=correlation_id)
     for doc_info in document_records:
-        task_manager.submit(
-            _process_document_background(doc_info["id"]),
-            task_type=TaskType.DOCUMENT_PROCESSING,
-            name=f"doc-{doc_info['id'][:8]}",
-        )
+        task_dispatcher.dispatch_document_processing(doc_info["id"])
 
     return UploadResponse(
         batch_id=batch.id,
