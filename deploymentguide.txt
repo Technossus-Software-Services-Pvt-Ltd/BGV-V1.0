@@ -1,0 +1,1209 @@
+# BGV Platform — IIS Deployment Guide (Windows Server)
+
+> **Audience**: Sysadmin / Dev deploying on Windows Server 2019/2022 or Windows 10/11 with IIS  
+> **Architecture**: IIS acts as a reverse proxy for the FastAPI backend (Uvicorn) and serves the built React frontend as static files.
+
+---
+
+## Deployment Architecture
+
+```
+Client Browser (port 80 / 443)
+         │
+         ▼
+    ┌──────────────────────────────────────────┐
+    │         IIS Website (bgv.yourdomain.com) │
+    │                                          │
+    │  /          → Static files (React build) │
+    │  /api/*     → Reverse Proxy ──────────── │──► Uvicorn @ localhost:8000
+    │  /auth/*    → Reverse Proxy ──────────── │──► Uvicorn @ localhost:8000
+    │  /ws/*      → WebSocket Proxy ────────── │──► Uvicorn @ localhost:8000
+    └──────────────────────────────────────────┘
+         │
+         ▼
+    ┌─────────────────────┐
+    │  Windows Services   │
+    │  • Uvicorn (NSSM)   │──► PostgreSQL @ 5432
+    │  • Redis (Memurai)  │
+    │  • Ollama (NSSM)    │
+    │  • PostgreSQL svc   │
+    └─────────────────────┘
+```
+
+---
+
+## Table of Contents
+
+1. [Prerequisites](#1-prerequisites)
+2. [Install & Enable IIS with Required Modules](#2-install--enable-iis-with-required-modules)
+3. [Install NSSM (Service Manager)](#3-install-nssm-service-manager)
+4. [Setup PostgreSQL as a Windows Service](#4-setup-postgresql-as-a-windows-service)
+5. [Setup Redis as a Windows Service](#5-setup-redis-as-a-windows-service)
+6. [Setup Ollama as a Windows Service](#6-setup-ollama-as-a-windows-service)
+7. [Prepare the Backend](#7-prepare-the-backend)
+8. [Register the Backend as a Windows Service](#8-register-the-backend-as-a-windows-service)
+9. [Build the Frontend](#9-build-the-frontend)
+10. [Configure IIS Site](#10-configure-iis-site)
+11. [Create web.config Files](#11-create-webconfig-files)
+12. [Configure Application Pool](#12-configure-application-pool)
+13. [Setup HTTPS / SSL](#13-setup-https--ssl)
+14. [Firewall Rules](#14-firewall-rules)
+15. [Verification](#15-verification)
+16. [Troubleshooting](#16-troubleshooting)
+
+---
+
+## 1. Prerequisites
+
+Run all commands in **PowerShell as Administrator**.
+
+### Required Software
+
+| Software | Version | Purpose |
+|----------|---------|---------|
+| Windows Server 2019/2022 or Win 10/11 | — | Host OS |
+| IIS | 10.x | Web server / reverse proxy |
+| Python | 3.11.x | Backend runtime |
+| Node.js | 20 LTS | Frontend build |
+| PostgreSQL | 15+ | Database |
+| Redis (Memurai) | 7.x compat | Cache / sessions |
+| Ollama | Latest | Local LLM inference |
+| NSSM | 2.24+ | Run Python as Windows Service |
+| Poppler | Latest | PDF processing (pdf2image) |
+
+### Verify all tools are installed
+```powershell
+python --version        # 3.11.x
+node --version          # v20.x.x
+npm --version           # 10.x.x
+git --version           # 2.x.x
+psql --version          # psql (PostgreSQL) 15.x
+```
+
+---
+
+## 2. Install & Enable IIS with Required Modules
+
+### 2.1 Enable IIS via PowerShell (Windows Server)
+
+```powershell
+# Install IIS with management tools
+Install-WindowsFeature -Name Web-Server -IncludeManagementTools
+
+# Enable required IIS sub-features
+Install-WindowsFeature -Name `
+  Web-Common-Http, `
+  Web-Static-Content, `
+  Web-Default-Doc, `
+  Web-Http-Errors, `
+  Web-Http-Redirect, `
+  Web-Http-Logging, `
+  Web-Request-Monitor, `
+  Web-Stat-Compression, `
+  Web-Filtering, `
+  Web-IP-Security, `
+  Web-Url-Auth, `
+  Web-Windows-Auth
+
+# Verify IIS is running
+Get-Service -Name W3SVC
+```
+
+### 2.2 Enable IIS via Windows Features (Windows 10/11)
+
+```powershell
+# Enable IIS and sub-features on desktop Windows
+Enable-WindowsOptionalFeature -Online -FeatureName `
+  IIS-WebServerRole, `
+  IIS-WebServer, `
+  IIS-CommonHttpFeatures, `
+  IIS-StaticContent, `
+  IIS-DefaultDocument, `
+  IIS-HttpErrors, `
+  IIS-HttpRedirect, `
+  IIS-ApplicationDevelopment, `
+  IIS-NetFxExtensibility45, `
+  IIS-ASPNET45, `
+  IIS-ISAPIExtensions, `
+  IIS-ISAPIFilter, `
+  IIS-HttpCompressionStatic, `
+  IIS-Security, `
+  IIS-RequestFiltering, `
+  IIS-ManagementConsole `
+  -All
+```
+
+### 2.3 Install URL Rewrite Module
+
+```powershell
+# Download URL Rewrite 2.1 from Microsoft
+$urlRewriteUrl = "https://download.microsoft.com/download/1/2/8/128E2E22-C1B9-44A4-BE2A-5859ED1D4592/rewrite_amd64_en-US.msi"
+$installer = "$env:TEMP\urlrewrite.msi"
+Invoke-WebRequest -Uri $urlRewriteUrl -OutFile $installer
+Start-Process msiexec.exe -ArgumentList "/i `"$installer`" /quiet /norestart" -Wait
+Remove-Item $installer
+
+# Verify — check IIS Manager for URL Rewrite module
+```
+
+### 2.4 Install Application Request Routing (ARR 3.0)
+
+> [!IMPORTANT]
+> ARR enables IIS to act as a reverse proxy to the Python backend. **This is required.**
+
+```powershell
+# Download ARR 3.0 installer
+$arrUrl = "https://download.microsoft.com/download/E/9/8/E9849D6A-020E-47E4-9FD0-A023E99B54EB/requestRouter_amd64.msi"
+$installer = "$env:TEMP\arr.msi"
+Invoke-WebRequest -Uri $arrUrl -OutFile $installer
+Start-Process msiexec.exe -ArgumentList "/i `"$installer`" /quiet /norestart" -Wait
+Remove-Item $installer
+```
+
+### 2.5 Enable ARR Proxy
+
+```powershell
+# Enable the proxy feature in ARR (REQUIRED for reverse proxy to work)
+# This must be done via IIS Manager OR via appcmd:
+& "$env:SystemRoot\system32\inetsrv\appcmd.exe" set config `
+  -section:system.webServer/proxy `
+  /enabled:"True" `
+  /commit:apphost
+```
+
+> [!NOTE]
+> Alternatively, open **IIS Manager → Server Level → Application Request Routing Cache → Server Proxy Settings → Enable proxy** checkbox.
+
+---
+
+## 3. Install NSSM (Service Manager)
+
+NSSM (Non-Sucking Service Manager) wraps any executable as a Windows Service — used to keep Uvicorn and Ollama running persistently.
+
+```powershell
+# Download NSSM
+$nssmUrl = "https://nssm.cc/release/nssm-2.24.zip"
+$nssmZip = "$env:TEMP\nssm.zip"
+Invoke-WebRequest -Uri $nssmUrl -OutFile $nssmZip
+Expand-Archive -Path $nssmZip -DestinationPath "$env:TEMP\nssm" -Force
+
+# Copy the 64-bit binary to a permanent location
+New-Item -ItemType Directory -Force -Path "C:\tools\nssm"
+Copy-Item "$env:TEMP\nssm\nssm-2.24\win64\nssm.exe" -Destination "C:\tools\nssm\nssm.exe"
+
+# Add to PATH
+[System.Environment]::SetEnvironmentVariable(
+  "Path",
+  $env:Path + ";C:\tools\nssm",
+  [System.EnvironmentVariableTarget]::Machine
+)
+
+# Reload PATH in current session
+$env:Path += ";C:\tools\nssm"
+
+# Verify
+nssm version
+```
+
+---
+
+## 4. Setup PostgreSQL as a Windows Service
+
+PostgreSQL installs as a Windows Service automatically. Verify and configure:
+
+```powershell
+# Check service name (typically postgresql-x64-15 or postgresql-x64-16)
+Get-Service -Name "postgresql*"
+
+# Set to Automatic startup
+Set-Service -Name "postgresql-x64-15" -StartupType Automatic
+
+# Start the service
+Start-Service -Name "postgresql-x64-15"
+
+# Create the database and user for production (if not done)
+psql -U postgres -c "CREATE USER bgv_user WITH PASSWORD 'YOUR_STRONG_PROD_PASSWORD';"
+psql -U postgres -c "CREATE DATABASE bgv_db OWNER bgv_user;"
+psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE bgv_db TO bgv_user;"
+
+# Verify connectivity
+psql -U bgv_user -d bgv_db -h localhost -c "SELECT version();"
+```
+
+> [!CAUTION]
+> Use a **strong password** in production. Replace `YOUR_STRONG_PROD_PASSWORD` throughout this guide.
+
+---
+
+## 5. Setup Redis as a Windows Service
+
+### Option A: Memurai (Recommended — native Windows)
+
+```powershell
+# Download Memurai Developer Edition from: https://www.memurai.com/get-memurai
+# Run the installer — it installs as a Windows Service automatically.
+
+# Verify service
+Get-Service -Name "Memurai"
+
+# Set to Automatic startup
+Set-Service -Name "Memurai" -StartupType Automatic
+Start-Service -Name "Memurai"
+
+# Test
+redis-cli ping    # → PONG
+```
+
+### Option B: Redis via WSL2
+
+```powershell
+# Install WSL2 + Ubuntu
+wsl --install -d Ubuntu
+
+# Inside WSL2 terminal, install and configure Redis:
+wsl -e bash -c "sudo apt update && sudo apt install -y redis-server"
+wsl -e bash -c "sudo sed -i 's/^bind 127.0.0.1/bind 0.0.0.0/' /etc/redis/redis.conf"
+wsl -e bash -c "sudo service redis-server start"
+
+# Test from Windows
+redis-cli -h 127.0.0.1 ping    # → PONG
+```
+
+---
+
+## 6. Setup Ollama as a Windows Service
+
+```powershell
+# 1. Ensure Ollama is installed: https://ollama.com/download/windows
+# 2. Pull required model (do this BEFORE registering as service)
+ollama pull llama3.1:latest
+# OR lightweight:
+ollama pull phi3:mini
+
+# 3. Stop the Ollama tray app if running (right-click tray icon → Quit)
+
+# 4. Register Ollama as a Windows Service via NSSM
+nssm install OllamaService "C:\Users\$env:USERNAME\AppData\Local\Programs\Ollama\ollama.exe"
+nssm set OllamaService AppParameters "serve"
+nssm set OllamaService AppDirectory "C:\Users\$env:USERNAME\AppData\Local\Programs\Ollama"
+nssm set OllamaService DisplayName "Ollama AI Service"
+nssm set OllamaService Description "Ollama local LLM inference server for BGV Platform"
+nssm set OllamaService Start SERVICE_AUTO_START
+
+# Set environment variable for Ollama host binding
+nssm set OllamaService AppEnvironmentExtra "OLLAMA_HOST=0.0.0.0:11434"
+
+# 5. Start the service
+nssm start OllamaService
+
+# 6. Verify (allow 10-15 seconds to start)
+Start-Sleep -Seconds 15
+curl http://localhost:11434/api/tags
+```
+
+---
+
+## 7. Prepare the Backend
+
+### 7.1 Choose a Deployment Directory
+
+```powershell
+# Create a dedicated deployment directory
+New-Item -ItemType Directory -Force -Path "C:\bgv\backend"
+New-Item -ItemType Directory -Force -Path "C:\bgv\frontend"
+New-Item -ItemType Directory -Force -Path "C:\bgv\logs"
+
+# Copy backend source code
+Copy-Item -Recurse -Force `
+  "C:\Users\PoojaThite\source\repos\BGV-V1.0\BGV-V1.0\backend\*" `
+  "C:\bgv\backend\"
+```
+
+### 7.2 Create Production Virtual Environment
+
+```powershell
+cd C:\bgv\backend
+
+# Create venv
+python -m venv .venv
+
+# Activate
+.\.venv\Scripts\Activate.ps1
+
+# Upgrade pip
+python -m pip install --upgrade pip
+
+# Install all dependencies
+pip install -r requirements.txt
+```
+
+### 7.3 Create Production `.env`
+
+```powershell
+# Copy example and configure
+Copy-Item .env.example .env
+```
+
+Edit `C:\bgv\backend\.env` with production values:
+
+```ini
+# ============================================================
+# C:\bgv\backend\.env — PRODUCTION Configuration
+# ============================================================
+
+ENVIRONMENT=production
+DEBUG=false
+LOG_LEVEL=INFO
+
+# ── DATABASE ──────────────────────────────────────────────
+DATABASE_URL=postgresql+asyncpg://bgv_user:YOUR_STRONG_PROD_PASSWORD@localhost:5432/bgv_db
+DATABASE_SYNC_URL=postgresql://bgv_user:YOUR_STRONG_PROD_PASSWORD@localhost:5432/bgv_db
+
+# ── GOOGLE OAUTH2 ─────────────────────────────────────────
+GOOGLE_CLIENT_ID=<your-google-client-id>.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=<your-google-client-secret>
+# Update to your production domain:
+GOOGLE_REDIRECT_URI=https://bgv.yourdomain.com/auth/callback
+
+# ── OLLAMA ────────────────────────────────────────────────
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=llama3.1:latest
+OLLAMA_CONNECT_TIMEOUT=10.0
+OLLAMA_MAX_RETRIES=3
+OLLAMA_NUM_PREDICT=1024
+OLLAMA_NUM_CTX=8192
+
+# ── REDIS ─────────────────────────────────────────────────
+REDIS_URL=redis://localhost:6379/0
+REDIS_ENABLED=true
+
+# ── SECURITY ──────────────────────────────────────────────
+# Generate with: python -c "import secrets; print(secrets.token_urlsafe(32))"
+SECRET_KEY=REPLACE_WITH_GENERATED_KEY
+
+# Update to your production domain (no trailing slash):
+CORS_ORIGINS=https://bgv.yourdomain.com
+
+# ── UPLOAD ────────────────────────────────────────────────
+UPLOAD_DIR=C:\bgv\uploads
+MAX_UPLOAD_SIZE_MB=50
+ALLOWED_EXTENSIONS=pdf,jpg,jpeg,png,webp
+MAX_FILES_PER_UPLOAD=20
+
+# ── PROCESSING ────────────────────────────────────────────
+MAX_CONCURRENT_OCR=2
+MAX_CONCURRENT_AI=1
+OCR_TIMEOUT_SECONDS=120
+OCR_PAGE_TIMEOUT_SECONDS=60
+OCR_PROCESS_WORKERS=4
+AI_TIMEOUT_SECONDS=120
+
+# ── TASK MANAGEMENT ───────────────────────────────────────
+MAX_DOCUMENT_CONCURRENCY=4
+MAX_BATCH_CONCURRENCY=2
+MAX_NOTIFICATION_CONCURRENCY=4
+SHUTDOWN_TIMEOUT_SECONDS=30
+
+# ── OPENAI (optional) ─────────────────────────────────────
+OPENAI_API_KEY=
+OPENAI_ENABLED=false
+
+# ── SESSION COOKIE ────────────────────────────────────────
+SESSION_COOKIE_NAME=bgv_session
+SESSION_COOKIE_SECURE=true
+SESSION_COOKIE_SAMESITE=lax
+SESSION_COOKIE_DOMAIN=bgv.yourdomain.com
+
+# ── WEBSOCKET ─────────────────────────────────────────────
+WS_TICKET_TTL_SECONDS=30
+
+# ── DASHBOARD ─────────────────────────────────────────────
+DASHBOARD_CACHE_TTL_SECONDS=30
+
+# ── OS FIX ────────────────────────────────────────────────
+KMP_DUPLICATE_LIB_OK=TRUE
+```
+
+### 7.4 Create Upload Directory
+
+```powershell
+New-Item -ItemType Directory -Force -Path "C:\bgv\uploads"
+
+# Grant IIS_IUSRS write access to uploads
+icacls "C:\bgv\uploads" /grant "IIS_IUSRS:(OI)(CI)F" /T
+icacls "C:\bgv\logs"    /grant "IIS_IUSRS:(OI)(CI)F" /T
+```
+
+### 7.5 Run Database Migrations
+
+```powershell
+cd C:\bgv\backend
+.\.venv\Scripts\Activate.ps1
+
+# Update alembic.ini with production credentials
+(Get-Content alembic.ini) -replace `
+  'sqlalchemy.url = .*', `
+  'sqlalchemy.url = postgresql://bgv_user:YOUR_STRONG_PROD_PASSWORD@localhost:5432/bgv_db' |
+  Set-Content alembic.ini
+
+# Run migrations
+alembic upgrade head
+
+# Verify
+alembic current
+```
+
+---
+
+## 8. Register the Backend as a Windows Service
+
+Use NSSM to keep Uvicorn running as a Windows Service that auto-starts with the server.
+
+```powershell
+# 1. Install the BGV Backend service
+nssm install BGVBackend "C:\bgv\backend\.venv\Scripts\python.exe"
+
+# 2. Set the startup arguments (production: no --reload, 2 workers)
+nssm set BGVBackend AppParameters `
+  "-m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 2"
+
+# 3. Set working directory (CRITICAL — app imports are relative to this)
+nssm set BGVBackend AppDirectory "C:\bgv\backend"
+
+# 4. Set environment variables
+nssm set BGVBackend AppEnvironmentExtra `
+  "KMP_DUPLICATE_LIB_OK=TRUE" `
+  "PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python"
+
+# 5. Configure log files
+nssm set BGVBackend AppStdout "C:\bgv\logs\backend_stdout.log"
+nssm set BGVBackend AppStderr "C:\bgv\logs\backend_stderr.log"
+nssm set BGVBackend AppRotateFiles 1
+nssm set BGVBackend AppRotateBytes 10485760
+
+# 6. Set service metadata
+nssm set BGVBackend DisplayName "BGV Platform Backend"
+nssm set BGVBackend Description "FastAPI/Uvicorn backend for BGV Background Verification Platform"
+nssm set BGVBackend Start SERVICE_AUTO_START
+
+# 7. Set service dependencies (start after PostgreSQL and Redis)
+nssm set BGVBackend DependOnService "postgresql-x64-15 Memurai"
+
+# 8. Start the service
+nssm start BGVBackend
+
+# 9. Verify
+Start-Sleep -Seconds 10
+Get-Service -Name BGVBackend
+curl http://localhost:8000/api/v1/health
+```
+
+> [!NOTE]
+> Adjust `postgresql-x64-15` to your actual PostgreSQL service name (check with `Get-Service postgresql*`).
+
+### Useful NSSM Service Commands
+
+```powershell
+# Check service status
+nssm status BGVBackend
+
+# Stop / Start / Restart
+nssm stop BGVBackend
+nssm start BGVBackend
+nssm restart BGVBackend
+
+# Edit service configuration
+nssm edit BGVBackend
+
+# Remove service
+nssm remove BGVBackend confirm
+```
+
+---
+
+## 9. Build the Frontend
+
+```powershell
+cd "C:\Users\PoojaThite\source\repos\BGV-V1.0\BGV-V1.0\frontend"
+
+# Configure production environment
+Copy-Item .env.example .env
+```
+
+Edit `frontend/.env` for production:
+
+```ini
+# frontend/.env — Production
+VITE_API_BASE_URL=/api/v1
+VITE_BACKEND_URL=https://bgv.yourdomain.com
+VITE_PORT=3000
+```
+
+```powershell
+# Install dependencies (if not already done)
+npm install
+
+# Build the production bundle
+npm run build
+
+# The output is in: frontend/dist/
+# Verify the build output
+dir dist
+# Expected: index.html, assets/, vite.svg
+
+# Copy build output to deployment directory
+Copy-Item -Recurse -Force ".\dist\*" "C:\bgv\frontend\"
+```
+
+---
+
+## 10. Configure IIS Site
+
+### 10.1 Create the IIS Website
+
+```powershell
+# Remove the Default Web Site if it's on port 80 (optional)
+Remove-WebSite -Name "Default Web Site" -ErrorAction SilentlyContinue
+
+# Create the BGV website pointing to the frontend build
+New-WebSite `
+  -Name "BGVPlatform" `
+  -Port 80 `
+  -HostHeader "bgv.yourdomain.com" `
+  -PhysicalPath "C:\bgv\frontend" `
+  -ApplicationPool "BGVAppPool" `
+  -Force
+
+# If deploying locally without a domain, use:
+# New-WebSite -Name "BGVPlatform" -Port 80 -PhysicalPath "C:\bgv\frontend" -ApplicationPool "BGVAppPool" -Force
+```
+
+### 10.2 Create a Dedicated Application Pool
+
+```powershell
+# Create Application Pool
+New-WebAppPool -Name "BGVAppPool"
+
+# Configure it — No managed code (we're serving static files + proxying)
+Set-ItemProperty `
+  -Path "IIS:\AppPools\BGVAppPool" `
+  -Name "managedRuntimeVersion" `
+  -Value ""
+
+# Set identity (NetworkService is fine; LocalSystem for more permissions)
+Set-ItemProperty `
+  -Path "IIS:\AppPools\BGVAppPool" `
+  -Name "processModel.userName" `
+  -Value "NetworkService"
+
+Set-ItemProperty `
+  -Path "IIS:\AppPools\BGVAppPool" `
+  -Name "processModel.identityType" `
+  -Value 2
+
+# Start the pool
+Start-WebAppPool -Name "BGVAppPool"
+```
+
+---
+
+## 11. Create web.config Files
+
+### 11.1 Root `web.config` — Frontend + API Reverse Proxy
+
+Create `C:\bgv\frontend\web.config`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+  <system.webServer>
+
+    <!-- ── Static file serving ───────────────────────────── -->
+    <staticContent>
+      <mimeMap fileExtension=".webmanifest" mimeType="application/manifest+json" />
+      <mimeMap fileExtension=".woff"  mimeType="font/woff" />
+      <mimeMap fileExtension=".woff2" mimeType="font/woff2" />
+      <mimeMap fileExtension=".svg"   mimeType="image/svg+xml" />
+    </staticContent>
+
+    <!-- ── Default document ──────────────────────────────── -->
+    <defaultDocument>
+      <files>
+        <clear />
+        <add value="index.html" />
+      </files>
+    </defaultDocument>
+
+    <!-- ── HTTP Compression ──────────────────────────────── -->
+    <httpCompression>
+      <dynamicTypes>
+        <add mimeType="application/json" enabled="true" />
+        <add mimeType="text/javascript"  enabled="true" />
+      </dynamicTypes>
+    </httpCompression>
+
+    <!-- ── URL Rewrite Rules ─────────────────────────────── -->
+    <rewrite>
+      <rules>
+
+        <!-- Rule 1: Proxy /api/* → Uvicorn backend -->
+        <rule name="ReverseProxy-API" stopProcessing="true">
+          <match url="^api/(.*)" />
+          <conditions>
+            <add input="{HTTP_HOST}" pattern=".*" />
+          </conditions>
+          <action type="Rewrite"
+                  url="http://localhost:8000/api/{R:1}"
+                  appendQueryString="true" />
+        </rule>
+
+        <!-- Rule 2: Proxy /auth/* → Uvicorn backend (OAuth callbacks) -->
+        <rule name="ReverseProxy-Auth" stopProcessing="true">
+          <match url="^auth/(.*)" />
+          <action type="Rewrite"
+                  url="http://localhost:8000/auth/{R:1}"
+                  appendQueryString="true" />
+        </rule>
+
+        <!-- Rule 3: WebSocket proxy /api/v1/ws/* → Uvicorn -->
+        <rule name="ReverseProxy-WebSocket" stopProcessing="true">
+          <match url="^api/v1/ws/(.*)" />
+          <conditions>
+            <add input="{HTTP_UPGRADE}" pattern="websocket" flags="None" />
+          </conditions>
+          <action type="Rewrite"
+                  url="http://localhost:8000/api/v1/ws/{R:1}"
+                  appendQueryString="true" />
+        </rule>
+
+        <!-- Rule 4: SPA fallback — serve index.html for React Router -->
+        <!-- Must be LAST rule -->
+        <rule name="SPA-Fallback" stopProcessing="true">
+          <match url=".*" />
+          <conditions logicalGrouping="MatchAll">
+            <!-- Skip if file exists (JS/CSS/images) -->
+            <add input="{REQUEST_FILENAME}" matchType="IsFile"      negate="true" />
+            <add input="{REQUEST_FILENAME}" matchType="IsDirectory"  negate="true" />
+            <!-- Skip API/auth routes (already handled above) -->
+            <add input="{REQUEST_URI}"      pattern="^/api"         negate="true" />
+            <add input="{REQUEST_URI}"      pattern="^/auth"        negate="true" />
+          </conditions>
+          <action type="Rewrite" url="/index.html" />
+        </rule>
+
+      </rules>
+
+      <!-- Preserve original host header when proxying -->
+      <outboundRules>
+        <rule name="ReverseProxyOutboundRule" preCondition="ResponseIsHtml1">
+          <match filterByTags="A, Form, Img" pattern="^http://localhost:8000/(.*)" />
+          <action type="Rewrite" value="/{R:1}" />
+        </rule>
+        <preConditions>
+          <preCondition name="ResponseIsHtml1">
+            <add input="{RESPONSE_CONTENT_TYPE}" pattern="^text/html" />
+          </preCondition>
+        </preConditions>
+      </outboundRules>
+    </rewrite>
+
+    <!-- ── Security Headers ──────────────────────────────── -->
+    <httpProtocol>
+      <customHeaders>
+        <remove name="X-Powered-By" />
+        <add name="X-Content-Type-Options"  value="nosniff" />
+        <add name="X-Frame-Options"         value="SAMEORIGIN" />
+        <add name="X-XSS-Protection"        value="1; mode=block" />
+        <add name="Referrer-Policy"         value="strict-origin-when-cross-origin" />
+      </customHeaders>
+    </httpProtocol>
+
+    <!-- ── Request Filtering (upload size) ───────────────── -->
+    <security>
+      <requestFiltering>
+        <!-- Allow up to 52 MB uploads (matches MAX_UPLOAD_SIZE_MB=50 + overhead) -->
+        <requestLimits maxAllowedContentLength="54525952" />
+      </requestFiltering>
+    </security>
+
+    <!-- ── Error Pages ───────────────────────────────────── -->
+    <httpErrors errorMode="Custom" existingResponse="PassThrough" />
+
+  </system.webServer>
+</configuration>
+```
+
+### 11.2 Save the `web.config`
+
+```powershell
+# The file above should be saved at:
+# C:\bgv\frontend\web.config
+
+# Verify IIS can read it:
+& "$env:SystemRoot\system32\inetsrv\appcmd.exe" list config "BGVPlatform/"
+```
+
+### 11.3 Enable WebSocket Protocol in IIS
+
+> [!IMPORTANT]
+> The BGV backend uses WebSockets for live pipeline updates. Enable the WebSocket Protocol feature.
+
+```powershell
+# Windows Server
+Install-WindowsFeature Web-WebSockets
+
+# Windows 10/11
+Enable-WindowsOptionalFeature -Online -FeatureName IIS-WebSockets
+```
+
+```xml
+<!-- Add this inside <system.webServer> in web.config to allow WebSocket upgrade headers -->
+<webSocket enabled="true" />
+```
+
+---
+
+## 12. Configure Application Pool
+
+### 12.1 Grant Permissions
+
+```powershell
+# Grant the app pool identity access to the site directory
+$appPoolUser = "IIS AppPool\BGVAppPool"
+
+icacls "C:\bgv\frontend" /grant "$appPoolUser`:(OI)(CI)R"  /T
+icacls "C:\bgv\uploads"  /grant "$appPoolUser`:(OI)(CI)M"  /T
+icacls "C:\bgv\logs"     /grant "$appPoolUser`:(OI)(CI)M"  /T
+```
+
+### 12.2 Restart IIS
+
+```powershell
+# Restart IIS to apply all config changes
+iisreset /restart
+
+# Or restart just the site:
+Stop-WebSite -Name "BGVPlatform"
+Start-WebSite -Name "BGVPlatform"
+```
+
+---
+
+## 13. Setup HTTPS / SSL
+
+### Option A: Self-Signed Certificate (Internal / Testing)
+
+```powershell
+# Create self-signed certificate
+$cert = New-SelfSignedCertificate `
+  -DnsName "bgv.yourdomain.com" `
+  -CertStoreLocation "cert:\LocalMachine\My" `
+  -NotAfter (Get-Date).AddYears(2)
+
+# Bind HTTPS to IIS site
+New-WebBinding `
+  -Name "BGVPlatform" `
+  -Protocol "https" `
+  -Port 443 `
+  -HostHeader "bgv.yourdomain.com"
+
+# Assign the certificate to the HTTPS binding
+$thumbprint = $cert.Thumbprint
+& "$env:SystemRoot\system32\netsh.exe" http add sslcert `
+  hostnameport="bgv.yourdomain.com:443" `
+  certhash="$thumbprint" `
+  certstorename="MY" `
+  appid="{4dc3e181-e14b-4a21-b022-59fc669b0914}"
+```
+
+### Option B: Let's Encrypt (Production — Free, trusted)
+
+```powershell
+# Install win-acme (ACME client for Windows/IIS):
+# https://www.win-acme.com/
+
+# Download and extract win-acme
+Invoke-WebRequest `
+  -Uri "https://github.com/win-acme/win-acme/releases/latest/download/win-acme.v2.x.x.x86.pluggable.zip" `
+  -OutFile "$env:TEMP\wacs.zip"
+Expand-Archive "$env:TEMP\wacs.zip" -DestinationPath "C:\tools\wacs"
+
+# Run the interactive ACME client
+C:\tools\wacs\wacs.exe
+# Follow prompts:
+#   N (new certificate)
+#   1 (IIS site binding)
+#   Select BGVPlatform
+#   Complete domain verification
+```
+
+### Redirect HTTP → HTTPS
+
+Add this rule **above** all other rules in `web.config`:
+
+```xml
+<!-- Add inside <rules> before all other rules -->
+<rule name="HTTP to HTTPS Redirect" stopProcessing="true">
+  <match url="(.*)" />
+  <conditions>
+    <add input="{HTTPS}" pattern="off" ignoreCase="true" />
+  </conditions>
+  <action type="Redirect"
+          url="https://{HTTP_HOST}/{R:0}"
+          redirectType="Permanent" />
+</rule>
+```
+
+---
+
+## 14. Firewall Rules
+
+```powershell
+# Allow HTTP (port 80)
+New-NetFirewallRule `
+  -DisplayName "BGV Platform HTTP" `
+  -Direction Inbound `
+  -Protocol TCP `
+  -LocalPort 80 `
+  -Action Allow
+
+# Allow HTTPS (port 443)
+New-NetFirewallRule `
+  -DisplayName "BGV Platform HTTPS" `
+  -Direction Inbound `
+  -Protocol TCP `
+  -LocalPort 443 `
+  -Action Allow
+
+# Block direct access to backend port from outside (only IIS should reach it)
+New-NetFirewallRule `
+  -DisplayName "Block Direct Backend Access" `
+  -Direction Inbound `
+  -Protocol TCP `
+  -LocalPort 8000 `
+  -RemoteAddress "!127.0.0.1" `
+  -Action Block
+
+# Block direct Redis access from outside
+New-NetFirewallRule `
+  -DisplayName "Block Direct Redis Access" `
+  -Direction Inbound `
+  -Protocol TCP `
+  -LocalPort 6379 `
+  -RemoteAddress "!127.0.0.1" `
+  -Action Block
+
+# Block direct Ollama access from outside
+New-NetFirewallRule `
+  -DisplayName "Block Direct Ollama Access" `
+  -Direction Inbound `
+  -Protocol TCP `
+  -LocalPort 11434 `
+  -RemoteAddress "!127.0.0.1" `
+  -Action Block
+```
+
+---
+
+## 15. Verification
+
+### 15.1 Service Status Check
+
+```powershell
+# Check all services are running
+Get-Service BGVBackend, OllamaService, Memurai, "postgresql-x64-15" |
+  Select-Object Name, Status, StartType |
+  Format-Table -AutoSize
+
+# Expected:
+# Name               Status  StartType
+# ----               ------  ---------
+# BGVBackend         Running Automatic
+# OllamaService      Running Automatic
+# Memurai            Running Automatic
+# postgresql-x64-15  Running Automatic
+```
+
+### 15.2 Health Endpoints
+
+```powershell
+# Backend health (internal)
+curl http://localhost:8000/api/v1/health
+
+# Backend health (via IIS proxy)
+curl http://bgv.yourdomain.com/api/v1/health
+# Expected: {"status": "ok", ...}
+
+# Frontend (via IIS)
+curl http://bgv.yourdomain.com/
+# Expected: HTML with <title>BGV Platform - Background Verification</title>
+
+# Swagger Docs (via IIS proxy)
+# Open in browser: http://bgv.yourdomain.com/api/v1/docs... 
+# Actually access docs directly: http://localhost:8000/docs (internal only)
+
+# Ollama (internal only)
+curl http://localhost:11434/api/tags
+
+# Redis
+redis-cli ping    # → PONG
+
+# PostgreSQL
+psql -U bgv_user -d bgv_db -c "SELECT 1;"
+```
+
+### 15.3 Full End-to-End Test
+
+1. Open browser → `https://bgv.yourdomain.com`
+2. Click **Login with Google** → redirected to Google OAuth
+3. After login, redirected back to `https://bgv.yourdomain.com/auth/callback`
+4. Dashboard loads with statistics
+5. Upload a test PDF document
+6. Watch real-time processing via WebSocket updates
+
+### 15.4 Check IIS Logs
+
+```powershell
+# IIS access logs
+Get-Content "C:\inetpub\logs\LogFiles\W3SVC1\*.log" -Tail 50
+
+# Backend logs
+Get-Content "C:\bgv\logs\backend_stdout.log" -Tail 50
+Get-Content "C:\bgv\logs\backend_stderr.log" -Tail 50
+```
+
+---
+
+## 16. Troubleshooting
+
+### 16.1 502 Bad Gateway — Backend Not Reachable
+
+**Symptom:** Browser shows `502 - Bad Gateway` when accessing `/api/*`
+
+**Diagnosis:**
+```powershell
+# 1. Is Uvicorn actually running?
+Get-Service BGVBackend
+curl http://localhost:8000/api/v1/health
+
+# 2. Is ARR proxy enabled?
+& "$env:SystemRoot\system32\inetsrv\appcmd.exe" list config -section:system.webServer/proxy
+
+# 3. Check backend logs
+Get-Content "C:\bgv\logs\backend_stderr.log" -Tail 20
+```
+
+**Fix:**
+```powershell
+# Restart the backend service
+nssm restart BGVBackend
+
+# Re-enable ARR proxy
+& "$env:SystemRoot\system32\inetsrv\appcmd.exe" set config `
+  -section:system.webServer/proxy /enabled:"True" /commit:apphost
+
+iisreset /restart
+```
+
+---
+
+### 16.2 404 on Page Refresh (React Router)
+
+**Symptom:** Navigating to `/dashboard` directly returns 404
+
+**Fix:** The SPA-Fallback rule in `web.config` must be present. Verify:
+
+```powershell
+Get-Content "C:\bgv\frontend\web.config" | Select-String "SPA-Fallback"
+# Should output the rule name
+```
+
+If missing, re-add the SPA-Fallback rewrite rule from Section 11.1.
+
+---
+
+### 16.3 WebSocket Connection Fails (Live Updates Broken)
+
+**Symptom:** Real-time document processing updates don't appear
+
+**Checklist:**
+```powershell
+# 1. WebSocket IIS feature installed?
+Get-WindowsFeature Web-WebSockets    # Should show Installed
+
+# 2. webSocket enabled in web.config?
+Get-Content "C:\bgv\frontend\web.config" | Select-String "webSocket"
+
+# 3. ARR WebSocket pass-through enabled
+& "$env:SystemRoot\system32\inetsrv\appcmd.exe" set config `
+  -section:system.webServer/proxy /disableProxyResponseBuffer:"True" /commit:apphost
+```
+
+---
+
+### 16.4 CORS Errors in Browser
+
+**Symptom:** Browser console shows `Access-Control-Allow-Origin` errors
+
+**Fix:** Update `backend/.env`:
+```ini
+# Include your production domain exactly
+CORS_ORIGINS=https://bgv.yourdomain.com
+```
+
+Then restart the backend:
+```powershell
+nssm restart BGVBackend
+```
+
+---
+
+### 16.5 Google OAuth Redirect URI Mismatch
+
+**Symptom:** `Error 400: redirect_uri_mismatch` from Google
+
+**Fix:**
+1. Go to [Google Cloud Console → Credentials](https://console.cloud.google.com/apis/credentials)
+2. Edit your OAuth 2.0 Client ID
+3. Add to **Authorized redirect URIs**: `https://bgv.yourdomain.com/auth/callback`
+4. Update `backend/.env`: `GOOGLE_REDIRECT_URI=https://bgv.yourdomain.com/auth/callback`
+5. Restart backend: `nssm restart BGVBackend`
+
+---
+
+### 16.6 File Upload Fails (413 Request Entity Too Large)
+
+**Symptom:** Large PDF uploads return `413`
+
+**Fix:** Update `web.config` (already set to 52 MB in Section 11.1):
+```xml
+<requestLimits maxAllowedContentLength="54525952" />
+```
+
+Also verify IIS Request Filtering:
+```powershell
+& "$env:SystemRoot\system32\inetsrv\appcmd.exe" set config `
+  "BGVPlatform/" `
+  -section:requestFiltering `
+  /requestLimits.maxAllowedContentLength:54525952
+```
+
+---
+
+### 16.7 Static Assets Not Loading (Blank Page)
+
+**Symptom:** Frontend loads but CSS/JS/images return 404
+
+**Checklist:**
+```powershell
+# 1. Does the build output exist?
+dir "C:\bgv\frontend\assets\"
+
+# 2. Rebuild if needed
+cd "C:\Users\PoojaThite\source\repos\BGV-V1.0\BGV-V1.0\frontend"
+npm run build
+Copy-Item -Recurse -Force ".\dist\*" "C:\bgv\frontend\"
+
+# 3. Check MIME types in IIS
+Get-WebConfigurationProperty `
+  -Filter "//staticContent/mimeMap[@fileExtension='.js']" `
+  -PSPath "IIS:\"  -Name "."
+```
+
+---
+
+### 16.8 Backend Service Won't Start (Environment Variable Issues)
+
+**Symptom:** `BGVBackend` service stays in `Stopped` state
+
+**Diagnosis:**
+```powershell
+# Run manually to see errors
+cd C:\bgv\backend
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+
+# Check NSSM event log
+nssm status BGVBackend
+Get-EventLog -LogName Application -Source NSSM -Newest 10
+```
+
+**Common Cause:** `.env` file not found by the service. NSSM sets the working directory, but verify:
+```powershell
+nssm get BGVBackend AppDirectory
+# Should output: C:\bgv\backend
+```
+
+---
+
+### 16.9 Alembic Migration Not Applied
+
+**Symptom:** Backend starts but returns 500 errors, log shows `relation does not exist`
+
+**Fix:**
+```powershell
+cd C:\bgv\backend
+.\.venv\Scripts\Activate.ps1
+alembic upgrade head
+nssm restart BGVBackend
+```
+
+---
+
+### 16.10 Check All Services at Once
+
+```powershell
+# One-liner health dashboard
+Write-Host "=== BGV Service Status ===" -ForegroundColor Cyan
+Get-Service BGVBackend, OllamaService, Memurai, "postgresql-x64-15" |
+  Format-Table Name, Status -AutoSize
+
+Write-Host "`n=== Endpoint Health ===" -ForegroundColor Cyan
+$endpoints = @(
+  "http://localhost:8000/api/v1/health",
+  "http://localhost:11434/api/tags"
+)
+foreach ($ep in $endpoints) {
+  try {
+    $r = Invoke-WebRequest -Uri $ep -TimeoutSec 5 -UseBasicParsing
+    Write-Host "✅ $ep → $($r.StatusCode)" -ForegroundColor Green
+  } catch {
+    Write-Host "❌ $ep → FAILED" -ForegroundColor Red
+  }
+}
+
+Write-Host "`n=== Redis ===" -ForegroundColor Cyan
+$ping = redis-cli ping 2>&1
+Write-Host $(if ($ping -eq "PONG") { "✅ Redis → PONG" } else { "❌ Redis → $ping" })
+```
+
+---
+
+## Quick Reference — Deployment Summary
+
+```
+Deployment Paths:
+  Frontend build:  C:\bgv\frontend\          (served by IIS)
+  Backend code:    C:\bgv\backend\           (run by NSSM)
+  Uploads:         C:\bgv\uploads\
+  Logs:            C:\bgv\logs\
+
+Service Names:
+  BGVBackend       → Uvicorn / FastAPI (port 8000, localhost only)
+  OllamaService    → Ollama LLM (port 11434, localhost only)
+  Memurai          → Redis (port 6379, localhost only)
+  postgresql-x64-15 → PostgreSQL (port 5432)
+
+IIS Site:
+  Name:     BGVPlatform
+  Pool:     BGVAppPool
+  Path:     C:\bgv\frontend
+  Port 80:  http://bgv.yourdomain.com
+  Port 443: https://bgv.yourdomain.com
+
+Key Commands:
+  nssm restart BGVBackend    # Restart Python backend
+  iisreset /restart          # Restart IIS
+  alembic upgrade head       # Apply DB migrations
+  ollama list                # List AI models
+  redis-cli ping             # Test Redis
+```

@@ -1,0 +1,742 @@
+# BGV Platform — Complete Setup Guide
+
+> **Platform**: Windows 10/11 · **Target**: Fresh machine, no prior dependencies assumed  
+> **Stack**: Python 3.11 · FastAPI · PostgreSQL · Redis · Ollama · React 18 · Vite · TailwindCSS
+
+---
+
+## Table of Contents
+
+1. [Prerequisites](#1-prerequisites)
+2. [Clone the Repository](#2-clone-the-repository)
+3. [Infrastructure — PostgreSQL & Redis](#3-infrastructure--postgresql--redis)
+4. [Ollama — Local AI Engine](#4-ollama--local-ai-engine)
+5. [Backend Setup](#5-backend-setup)
+6. [Environment Configuration](#6-environment-configuration)
+7. [Database Migrations](#7-database-migrations)
+8. [Frontend Setup](#8-frontend-setup)
+9. [Starting All Services](#9-starting-all-services)
+10. [Verification](#10-verification)
+11. [Troubleshooting](#11-troubleshooting)
+
+---
+
+## 1. Prerequisites
+
+Install each tool below before proceeding. Open **PowerShell as Administrator** for all steps.
+
+### 1.1 Git
+
+```powershell
+# Download and install from:
+# https://git-scm.com/download/win
+
+# Verify after install (restart shell first)
+git --version
+# Expected: git version 2.x.x
+```
+
+### 1.2 Python 3.11
+
+> [!IMPORTANT]
+> The backend Dockerfile uses **Python 3.11**. Use Python 3.10–3.11 for local dev (3.12+ may break PaddleOCR/PaddlePaddle binary wheels).
+
+```powershell
+# Download Python 3.11.x from: https://www.python.org/downloads/release/python-3119/
+# ⚠️  During install: CHECK "Add Python to PATH" and "pip"
+
+# Verify
+python --version
+# Expected: Python 3.11.x
+
+pip --version
+# Expected: pip 24.x from ...
+```
+
+### 1.3 Node.js (LTS)
+
+```powershell
+# Download Node.js 20 LTS from: https://nodejs.org/en/download
+
+# Verify
+node --version
+# Expected: v20.x.x
+
+npm --version
+# Expected: 10.x.x
+```
+
+### 1.4 Poppler for Windows (required by pdf2image)
+
+```powershell
+# Download the latest poppler-windows release from:
+# https://github.com/oschwartz10612/poppler-windows/releases/latest
+# Extract to: C:\poppler
+
+# Add to PATH permanently (run as Administrator):
+[System.Environment]::SetEnvironmentVariable(
+  "Path",
+  $env:Path + ";C:\poppler\Library\bin",
+  [System.EnvironmentVariableTarget]::Machine
+)
+
+# Restart PowerShell, then verify
+pdftoppm -v
+# Expected: pdftoppm version ...
+```
+
+### 1.5 Visual C++ Redistributable (required by PaddleOCR on Windows)
+
+```powershell
+# Download Microsoft Visual C++ Redistributable (x64) from:
+# https://aka.ms/vs/17/release/vc_redist.x64.exe
+# Run the installer and follow prompts.
+```
+
+---
+
+## 2. Clone the Repository
+
+```powershell
+# Navigate to your preferred workspace
+cd C:\Users\<YourUsername>\source\repos
+
+# Clone
+git clone https://github.com/Technossus-Software-Services-Pvt-Ltd/BGV-V1.0.git
+cd BGV-V1.0
+```
+
+---
+
+## 3. Infrastructure — PostgreSQL & Redis
+
+### Option A: Docker (Recommended — simplest)
+
+```powershell
+# Install Docker Desktop: https://www.docker.com/products/docker-desktop/
+# After install, ensure Docker Engine is running (check system tray)
+
+# From the project root, spin up Postgres + Redis only:
+docker compose up -d postgres redis
+
+# Verify containers are healthy
+docker compose ps
+# Both should show: "Up (healthy)"
+```
+
+### Option B: Native Windows Install
+
+#### PostgreSQL 15+
+
+```powershell
+# Download from: https://www.enterprisedb.com/downloads/postgres-postgresql-downloads
+# Install with the graphical installer. During setup:
+#   - Port: 5432 (default)
+#   - Superuser password: choose one and note it down
+#   - ✅ Include pgAdmin 4 (optional but handy)
+
+# After install, open psql (Start → pgAdmin or psql shell):
+psql -U postgres -c "CREATE USER bgv_user WITH PASSWORD 'bgv_dev_pass';"
+psql -U postgres -c "CREATE DATABASE bgv_db OWNER bgv_user;"
+psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE bgv_db TO bgv_user;"
+
+# Verify connection
+psql -U bgv_user -d bgv_db -c "SELECT version();"
+```
+
+#### Redis 7 (Windows — via Memurai or WSL)
+
+**Option B1: Memurai (native Windows Redis-compatible server)**
+```powershell
+# Download from: https://www.memurai.com/get-memurai
+# Install and it auto-starts as a Windows Service on port 6379
+
+# Verify
+redis-cli ping
+# Expected: PONG
+```
+
+**Option B2: Redis via WSL2**
+```powershell
+# Enable WSL2 first (run as Administrator):
+wsl --install -d Ubuntu
+
+# Inside WSL2 Ubuntu terminal:
+sudo apt update && sudo apt install -y redis-server
+sudo service redis-server start
+redis-cli ping   # → PONG
+```
+
+---
+
+## 4. Ollama — Local AI Engine
+
+### 4.1 Install Ollama
+
+```powershell
+# Download installer from: https://ollama.com/download/windows
+# Run the installer — Ollama will start automatically in the system tray
+
+# Verify the server is running
+curl http://localhost:11434/api/tags
+# Expected: {"models":[...]}
+
+# Or via Ollama CLI
+ollama list
+```
+
+### 4.2 Pull Required Models
+
+The backend is configured to use `llama3.1:latest` by default, with `phi3:mini` as a lightweight alternative.
+
+```powershell
+# Primary model (recommended — good quality, ~4.7 GB):
+ollama pull llama3.1:latest
+
+# OR lightweight alternative (faster on CPU, ~2.2 GB):
+ollama pull phi3:mini
+
+# Verify models are available
+ollama list
+# Expected: shows llama3.1:latest or phi3:mini
+```
+
+> [!TIP]
+> On **8 GB RAM / no GPU** machines, `phi3:mini` is strongly recommended for speed. Update `OLLAMA_MODEL=phi3:mini` in `backend/.env` accordingly.
+
+```powershell
+# Test a model manually
+ollama run phi3:mini "Say hello"
+# Expected: text response from the model
+```
+
+---
+
+## 5. Backend Setup
+
+### 5.1 Create & Activate Virtual Environment
+
+```powershell
+cd backend
+
+# Create virtual environment
+python -m venv .venv
+
+# Activate (PowerShell)
+.\.venv\Scripts\Activate.ps1
+
+# If you get "execution policy" error, run first:
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+
+# Confirm activation — prompt should show (.venv)
+python --version
+```
+
+### 5.2 Install Dependencies
+
+```powershell
+# Upgrade pip first
+python -m pip install --upgrade pip
+
+# Install all backend dependencies
+pip install -r requirements.txt
+
+# ⏳ This takes 5–15 minutes on first run.
+# PaddleOCR and PaddlePaddle are large packages.
+# If PaddlePaddle fails, try the CPU-only wheel explicitly:
+pip install paddlepaddle==2.6.2 -f https://www.paddlepaddle.org.cn/whl/windows/mkl/avx/stable.html
+pip install paddleocr>=2.7.3,<3.0.0
+
+# Install test dependencies (optional)
+pip install -r requirements-test.txt
+```
+
+---
+
+## 6. Environment Configuration
+
+### 6.1 Backend `.env`
+
+```powershell
+# From the backend/ directory
+copy .env.example .env
+```
+
+Open `backend/.env` and update the following values:
+
+```ini
+# ============================================================
+# backend/.env — Required Configuration
+# ============================================================
+
+# Environment
+ENVIRONMENT=development
+DEBUG=false
+LOG_LEVEL=INFO
+
+# ── DATABASE ──────────────────────────────────────────────
+# Replace <YOUR_PASSWORD> with the password you set for bgv_user
+DATABASE_URL=postgresql+asyncpg://bgv_user:bgv_dev_pass@localhost:5432/bgv_db
+DATABASE_SYNC_URL=postgresql://bgv_user:bgv_dev_pass@localhost:5432/bgv_db
+
+# ── GOOGLE OAUTH2 ─────────────────────────────────────────
+# Required for login. Create OAuth 2.0 credentials at:
+# https://console.cloud.google.com/apis/credentials
+# Add Authorized Redirect URI: http://localhost:3000/auth/callback
+GOOGLE_CLIENT_ID=<your-google-client-id>.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=<your-google-client-secret>
+GOOGLE_REDIRECT_URI=http://localhost:3000/auth/callback
+
+# ── OLLAMA ────────────────────────────────────────────────
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=llama3.1:latest
+# Use phi3:mini on low-RAM machines:
+# OLLAMA_MODEL=phi3:mini
+OLLAMA_CONNECT_TIMEOUT=10.0
+OLLAMA_MAX_RETRIES=3
+OLLAMA_NUM_PREDICT=1024
+OLLAMA_NUM_CTX=8192
+
+# ── REDIS ─────────────────────────────────────────────────
+REDIS_URL=redis://localhost:6379/0
+REDIS_ENABLED=true
+
+# ── SECURITY ──────────────────────────────────────────────
+# Generate a strong key: python -c "import secrets; print(secrets.token_urlsafe(32))"
+SECRET_KEY=change-this-to-a-secure-random-string-in-production
+CORS_ORIGINS=http://localhost:3000,http://localhost:5173
+
+# ── UPLOAD ────────────────────────────────────────────────
+UPLOAD_DIR=./uploads
+MAX_UPLOAD_SIZE_MB=50
+ALLOWED_EXTENSIONS=pdf,jpg,jpeg,png,webp
+MAX_FILES_PER_UPLOAD=20
+
+# ── PROCESSING ────────────────────────────────────────────
+MAX_CONCURRENT_OCR=2
+MAX_CONCURRENT_AI=1
+OCR_TIMEOUT_SECONDS=120
+OCR_PAGE_TIMEOUT_SECONDS=60
+OCR_PROCESS_WORKERS=4
+AI_TIMEOUT_SECONDS=120
+
+# ── TASK MANAGEMENT ───────────────────────────────────────
+MAX_DOCUMENT_CONCURRENCY=4
+MAX_BATCH_CONCURRENCY=2
+MAX_NOTIFICATION_CONCURRENCY=4
+SHUTDOWN_TIMEOUT_SECONDS=30
+
+# ── OPENAI (optional fallback) ────────────────────────────
+OPENAI_API_KEY=
+OPENAI_ENABLED=false
+OPENAI_MODEL=gpt-4o-mini
+
+# ── SESSION COOKIE ────────────────────────────────────────
+SESSION_COOKIE_NAME=bgv_session
+SESSION_COOKIE_SECURE=false
+SESSION_COOKIE_SAMESITE=lax
+SESSION_COOKIE_DOMAIN=
+
+# ── WEBSOCKET ─────────────────────────────────────────────
+WS_TICKET_TTL_SECONDS=30
+
+# ── DASHBOARD ─────────────────────────────────────────────
+DASHBOARD_CACHE_TTL_SECONDS=30
+
+# ── OS FIX (Windows — prevents OpenMP crash with PaddleOCR) ─
+KMP_DUPLICATE_LIB_OK=TRUE
+```
+
+> [!WARNING]
+> Never commit `backend/.env` to Git. It is already listed in `.gitignore`.
+
+### Generate a Secure SECRET_KEY
+
+```powershell
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+# Copy output → paste as SECRET_KEY value in .env
+```
+
+### 6.2 Frontend `.env`
+
+```powershell
+# From the frontend/ directory
+copy .env.example .env
+```
+
+`frontend/.env` contents:
+
+```ini
+# ============================================================
+# frontend/.env — Frontend Configuration
+# ============================================================
+VITE_API_BASE_URL=/api/v1
+VITE_BACKEND_URL=http://localhost:8000
+VITE_PORT=3000
+```
+
+### 6.3 Update `alembic.ini` (if using native Postgres)
+
+If your PostgreSQL password differs from the default, update `backend/alembic.ini`:
+
+```ini
+# Line 4 — update credentials to match your backend/.env
+sqlalchemy.url = postgresql://bgv_user:bgv_dev_pass@localhost:5432/bgv_db
+```
+
+---
+
+## 7. Database Migrations
+
+> [!IMPORTANT]
+> Ensure PostgreSQL is running and the `bgv_db` database exists before running migrations.
+
+```powershell
+# From the backend/ directory, with .venv activated
+cd backend
+.\.venv\Scripts\Activate.ps1
+
+# Run all Alembic migrations to set up the schema
+alembic upgrade head
+
+# Expected output:
+# INFO  [alembic.runtime.migration] Running upgrade  -> <rev_id>, <description>
+# INFO  [alembic.runtime.migration] Running upgrade <prev> -> <next>, ...
+
+# Verify current migration state
+alembic current
+# Expected: <latest_revision_id> (head)
+```
+
+---
+
+## 8. Frontend Setup
+
+```powershell
+cd frontend
+
+# Install all Node.js dependencies
+npm install
+
+# Verify no critical errors — warnings about deprecated packages are OK
+```
+
+---
+
+## 9. Starting All Services
+
+### Option A: One-Click (Windows Batch Script)
+
+```powershell
+# From the project root:
+.\run-local.bat
+```
+
+This script automatically:
+1. Starts PostgreSQL service (`postgresql-x64-18`)
+2. Launches Ollama (`ollama serve`) if not already running
+3. Opens the backend in a new terminal window
+4. Opens the frontend in a new terminal window
+
+> [!NOTE]
+> The batch script assumes PostgreSQL is installed as a Windows service named `postgresql-x64-18`. If your service name differs, edit line 17 of `run-local.bat`.
+
+---
+
+### Option B: Manual Start (Recommended for debugging)
+
+Open **4 separate PowerShell terminals**:
+
+#### Terminal 1 — PostgreSQL (if not using Docker)
+```powershell
+# Check if running
+Get-Service -Name "postgresql*"
+
+# Start if stopped
+Start-Service -Name "postgresql-x64-18"
+```
+
+#### Terminal 2 — Redis (if not using Docker)
+```powershell
+# If using Memurai:
+Get-Service -Name "Memurai"   # should show Running
+
+# If using WSL2 Redis:
+wsl -e bash -c "sudo service redis-server start"
+
+# Verify
+redis-cli ping   # → PONG
+```
+
+#### Terminal 3 — Ollama
+```powershell
+# Start Ollama server (if not running in system tray already)
+ollama serve
+
+# Expected output:
+# Listening on [::]:11434 (version ...)
+```
+
+#### Terminal 4 — Backend
+```powershell
+cd backend
+.\.venv\Scripts\Activate.ps1
+
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+# Expected output:
+# INFO:     Started server process [PID]
+# INFO:     Application startup complete.
+# INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+```
+
+#### Terminal 5 — Frontend
+```powershell
+cd frontend
+npm run dev
+
+# Expected output:
+# VITE v5.x.x  ready in xxx ms
+# ➜  Local:   http://localhost:3000/
+# ➜  Network: http://0.0.0.0:3000/
+```
+
+---
+
+## 10. Verification
+
+### 10.1 Service Endpoints
+
+| Service | URL | Expected Response |
+|---------|-----|-------------------|
+| Backend API | http://localhost:8000 | Redirect or 404 |
+| Swagger UI (API Docs) | http://localhost:8000/docs | Interactive API documentation |
+| Health Check | http://localhost:8000/api/v1/health | `{"status": "ok", ...}` |
+| Frontend App | http://localhost:3000 | BGV login page |
+| Ollama API | http://localhost:11434/api/tags | `{"models": [...]}` |
+
+### 10.2 Health Check Commands
+
+```powershell
+# Backend health
+curl http://localhost:8000/api/v1/health
+
+# Ollama status
+curl http://localhost:11434/api/tags
+
+# Redis ping
+redis-cli ping
+
+# PostgreSQL connection
+psql -U bgv_user -d bgv_db -c "SELECT 1 AS connected;"
+```
+
+### 10.3 Expected Backend Startup Log
+
+```
+INFO  startup.recovery  Recovered stuck documents: 0
+INFO  startup.recovery  Recovered stuck batches: 0
+INFO  uvicorn.access    Application startup complete
+```
+
+### 10.4 Run Backend Tests (Optional)
+
+```powershell
+cd backend
+.\.venv\Scripts\Activate.ps1
+
+# Run full test suite
+pytest tests/ -v
+
+# Run with coverage report
+pytest tests/ --cov=app --cov-report=term-missing
+```
+
+---
+
+## 11. Troubleshooting
+
+### 11.1 PowerShell Execution Policy Error
+
+```
+.\.venv\Scripts\Activate.ps1 cannot be loaded because running scripts is disabled
+```
+**Fix:**
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+
+---
+
+### 11.2 PaddleOCR / PaddlePaddle Installation Fails
+
+**Symptom:** `ERROR: Could not find a version that satisfies the requirement paddlepaddle`
+
+**Fix:** Install the CPU-only wheel directly:
+```powershell
+pip install paddlepaddle==2.6.2 -f https://www.paddlepaddle.org.cn/whl/windows/mkl/avx/stable.html
+pip install paddleocr>=2.7.3,<3.0.0
+```
+
+---
+
+### 11.3 `KMP_DUPLICATE_LIB_OK` Error (OpenMP Crash)
+
+**Symptom:** Backend crashes immediately with `OMP: Error #15`
+
+**Fix:** Ensure the following line is in `backend/.env`:
+```ini
+KMP_DUPLICATE_LIB_OK=TRUE
+```
+
+---
+
+### 11.4 Database Connection Refused
+
+**Symptom:** `connection refused` or `could not connect to server`
+
+**Checklist:**
+```powershell
+# 1. Is PostgreSQL running?
+Get-Service -Name "postgresql*"
+
+# 2. Can you connect manually?
+psql -U bgv_user -d bgv_db -h localhost -p 5432
+
+# 3. Check DATABASE_URL in backend/.env matches your credentials
+# 4. Check alembic.ini sqlalchemy.url matches your credentials
+```
+
+---
+
+### 11.5 Alembic Migration Fails
+
+**Symptom:** `FATAL: database "bgv_db" does not exist`
+
+**Fix:**
+```powershell
+psql -U postgres -c "CREATE DATABASE bgv_db OWNER bgv_user;"
+psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE bgv_db TO bgv_user;"
+alembic upgrade head
+```
+
+---
+
+### 11.6 Ollama Model Not Found
+
+**Symptom:** `model "llama3.1:latest" not found`
+
+**Fix:**
+```powershell
+# Pull the model
+ollama pull llama3.1:latest
+
+# OR switch to lightweight model:
+ollama pull phi3:mini
+# Then update backend/.env:
+# OLLAMA_MODEL=phi3:mini
+```
+
+---
+
+### 11.7 Redis Connection Error
+
+**Symptom:** `redis.exceptions.ConnectionError: Error 111 connecting to localhost:6379`
+
+**Fix:**
+```powershell
+# Check if Redis is running
+Get-Service -Name "Memurai"    # If using Memurai
+# OR
+wsl -e redis-cli ping          # If using WSL2
+
+# Start Redis if stopped
+Start-Service -Name "Memurai"  # Memurai
+
+# Disable Redis if you can't get it running (graceful fallback):
+# Set in backend/.env:
+# REDIS_ENABLED=false
+```
+
+---
+
+### 11.8 Frontend Blank Page / API 404 Errors
+
+**Symptom:** Frontend loads but API calls return 404 or CORS errors
+
+**Fix:**
+1. Confirm backend is running on port 8000
+2. Check `frontend/.env` has `VITE_BACKEND_URL=http://localhost:8000`
+3. Restart frontend after `.env` changes: `npm run dev`
+4. Check backend `.env` `CORS_ORIGINS` includes `http://localhost:3000,http://localhost:5173`
+
+---
+
+### 11.9 Port Already in Use
+
+```powershell
+# Find what's using port 8000
+netstat -ano | findstr :8000
+
+# Kill by PID (replace <PID> with actual)
+taskkill /PID <PID> /F
+
+# Same for port 3000
+netstat -ano | findstr :3000
+```
+
+---
+
+### 11.10 Google OAuth Not Working (Redirect URI Mismatch)
+
+**Fix:**
+1. Go to [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
+2. Open your OAuth 2.0 Client ID
+3. Under **Authorized redirect URIs**, add exactly: `http://localhost:3000/auth/callback`
+4. Save and wait 1–2 minutes for changes to propagate
+5. Ensure `backend/.env` has: `GOOGLE_REDIRECT_URI=http://localhost:3000/auth/callback`
+
+---
+
+## Quick Reference — Service URLs
+
+```
+Frontend App:     http://localhost:3000
+Backend API:      http://localhost:8000
+API Swagger Docs: http://localhost:8000/docs
+API ReDoc:        http://localhost:8000/redoc
+Ollama API:       http://localhost:11434
+PostgreSQL:       localhost:5432  (db: bgv_db, user: bgv_user)
+Redis:            localhost:6379
+```
+
+## Quick Reference — Commands Cheatsheet
+
+```powershell
+# Activate Python venv (run from backend/)
+.\.venv\Scripts\Activate.ps1
+
+# Start backend (from backend/, venv activated)
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+# Start frontend (from frontend/)
+npm run dev
+
+# Run DB migrations (from backend/, venv activated)
+alembic upgrade head
+
+# Check migration status
+alembic current
+
+# Pull Ollama model
+ollama pull llama3.1:latest
+
+# List Ollama models
+ollama list
+
+# Redis health check
+redis-cli ping
+
+# Run tests
+pytest tests/ -v --cov=app
+```

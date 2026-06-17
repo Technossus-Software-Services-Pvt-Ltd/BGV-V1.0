@@ -86,9 +86,21 @@ async def _recover_stuck_documents():
             if result.rowcount:
                 logger.warning("recovered_stuck_documents", count=result.rowcount)
             await db.commit()
+        except Exception as e:
+            logger.error("recovery_stuck_documents_failed", error=str(e), exc_info=True)
+            await db.rollback()
+            raise
         finally:
             if is_postgres:
-                await db.execute(text("SELECT pg_advisory_unlock(:lock_id)"), {"lock_id": ADVISORY_LOCK_DOCUMENT_RECOVERY})
+                try:
+                    await db.execute(text("SELECT pg_advisory_unlock(:lock_id)"), {"lock_id": ADVISORY_LOCK_DOCUMENT_RECOVERY})
+                    await db.commit()
+                except Exception as unlock_err:
+                    logger.error(
+                        "failed_to_release_advisory_lock",
+                        lock_id=ADVISORY_LOCK_DOCUMENT_RECOVERY,
+                        error=str(unlock_err),
+                    )
 
 
 ADVISORY_LOCK_BATCH_RECOVERY = 1000002  # Startup: reset stuck batches
@@ -120,9 +132,21 @@ async def _recover_stuck_batches():
             if result.rowcount:
                 logger.warning("recovered_stuck_batches", count=result.rowcount)
             await db.commit()
+        except Exception as e:
+            logger.error("recovery_stuck_batches_failed", error=str(e), exc_info=True)
+            await db.rollback()
+            raise
         finally:
             if is_postgres:
-                await db.execute(text("SELECT pg_advisory_unlock(:lock_id)"), {"lock_id": ADVISORY_LOCK_BATCH_RECOVERY})
+                try:
+                    await db.execute(text("SELECT pg_advisory_unlock(:lock_id)"), {"lock_id": ADVISORY_LOCK_BATCH_RECOVERY})
+                    await db.commit()
+                except Exception as unlock_err:
+                    logger.error(
+                        "failed_to_release_advisory_lock",
+                        lock_id=ADVISORY_LOCK_BATCH_RECOVERY,
+                        error=str(unlock_err),
+                    )
 
 
 # Rate limiter — keyed by client IP

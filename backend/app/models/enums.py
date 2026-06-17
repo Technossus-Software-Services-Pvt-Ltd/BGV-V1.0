@@ -21,12 +21,17 @@ class ProcessingStatus(str, enum.Enum):
 
 
 class DocumentType(str, enum.Enum):
+    # Identity
     AADHAAR = "aadhaar"
     PAN_CARD = "pan_card"
     PASSPORT = "passport"
     DRIVING_LICENSE = "driving_license"
     VOTER_ID = "voter_id"
+    BIRTH_CERTIFICATE = "birth_certificate"
+    OCI_CARD = "oci_card"
     POLICE_VERIFICATION = "police_verification"
+
+    # Education
     MARKSHEET_10TH = "marksheet_10th"
     MARKSHEET_12TH = "marksheet_12th"
     CERTIFICATE_DIPLOMA = "certificate_diploma"
@@ -35,12 +40,52 @@ class DocumentType(str, enum.Enum):
     MARKSHEET_DEGREE = "marksheet_degree"
     CERTIFICATE_10TH = "certificate_10th"
     CERTIFICATE_12TH = "certificate_12th"
+    PROVISIONAL_DEGREE_CERTIFICATE = "provisional_degree_certificate"
     COLLEGE_ID_CARD = "college_id_card"
-    FITMENT_MEDICAL_CERTIFICATE = "fitment_medical_certificate"
-    PAYSLIP = "payslip"
+    BONAFIDE_CERTIFICATE = "bonafide_certificate"
+    TRANSFER_CERTIFICATE = "transfer_certificate"
+    MIGRATION_CERTIFICATE = "migration_certificate"
+    EDUCATION_GAP_AFFIDAVIT = "education_gap_affidavit"
+
+    # Employment
+    OFFER_LETTER = "offer_letter"
+    APPOINTMENT_LETTER = "appointment_letter"
     EXPERIENCE_LETTER = "experience_letter"
+    RELIEVING_LETTER = "relieving_letter"
+    EMPLOYMENT_VERIFICATION_LETTER = "employment_verification_letter"
+    PROMOTION_LETTER = "promotion_letter"
+    INCREMENT_LETTER = "increment_letter"
+    EMPLOYEE_ID_CARD = "employee_id_card"
+
+    # Financial
+    PAYSLIP = "payslip"
     BANK_STATEMENT = "bank_statement"
+    FORM16 = "form16"
+    FORM26AS = "form26as"
+    ITR = "itr"
+    CANCELLED_CHEQUE = "cancelled_cheque"
+
+    # Address / Utility
     ADDRESS_PROOF = "address_proof"
+    ELECTRICITY_BILL = "electricity_bill"
+    WATER_BILL = "water_bill"
+    GAS_BILL = "gas_bill"
+    TELEPHONE_BILL = "telephone_bill"
+    UTILITY_BILL = "utility_bill"
+    RENT_AGREEMENT = "rent_agreement"
+    LEASE_AGREEMENT = "lease_agreement"
+
+    # Medical
+    FITMENT_MEDICAL_CERTIFICATE = "fitment_medical_certificate"
+    VACCINATION_CERTIFICATE = "vaccination_certificate"
+    HEALTH_INSURANCE_CARD = "health_insurance_card"
+
+    # Legal
+    POLICE_CLEARANCE_CERTIFICATE = "police_clearance_certificate"
+    LEGAL_AFFIDAVIT = "legal_affidavit"
+    COURT_DOCUMENT = "court_document"
+
+    # Other
     PHOTOGRAPH = "photograph"
     UNKNOWN = "unknown"
 

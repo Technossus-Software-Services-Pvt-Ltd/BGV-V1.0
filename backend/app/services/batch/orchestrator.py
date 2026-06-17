@@ -236,7 +236,11 @@ class BatchOrchestrator:
                         candidate, upload_batch, att.filename, att.mime_type, file_bytes,
                         batch.correlation_id,
                     )
-                    document_ids.append(doc_id)
+                    if doc_id:
+                        document_ids.append(doc_id)
+                    else:
+                        await self._status.log(batch.id, bc.id, "info", "download",
+                                               f"{prefix}: Gmail attachment '{att.filename}' is a duplicate - skipped ingestion")
                 except Exception as e:
                     bc.documents_failed += 1
                     await self._status.log(batch.id, bc.id, "error", "download",
@@ -261,7 +265,11 @@ class BatchOrchestrator:
                         candidate, upload_batch, filename, mime, file_bytes,
                         batch.correlation_id,
                     )
-                    document_ids.append(doc_id)
+                    if doc_id:
+                        document_ids.append(doc_id)
+                    else:
+                        await self._status.log(batch.id, bc.id, "info", "download",
+                                               f"{prefix}: Drive file '{df.filename}' is a duplicate - skipped ingestion")
                 except Exception as e:
                     bc.documents_failed += 1
                     await self._status.log(batch.id, bc.id, "error", "download",

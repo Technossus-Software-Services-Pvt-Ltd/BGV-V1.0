@@ -67,10 +67,6 @@ export default function BatchDetailPage() {
   if (error) return <ErrorMessage message={error} onRetry={loadData} />;
   if (!batch) return <ErrorMessage message="Batch not found" />;
 
-  const progressPercent = batch.total_candidates > 0
-    ? Math.round(((batch.processed_candidates + batch.failed_candidates + batch.skipped_candidates) / batch.total_candidates) * 100)
-    : 0;
-
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
@@ -117,20 +113,6 @@ export default function BatchDetailPage() {
         <div className="card p-4 text-center">
           <p className="text-xl font-bold text-gray-900">{batch.total_documents_processed}/{batch.total_documents_found}</p>
           <p className="text-xs text-gray-500">Documents</p>
-        </div>
-      </div>
-
-      {/* Progress bar */}
-      <div className="card p-4">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-sm font-medium text-gray-700">Processing Progress</span>
-          <span className="text-sm text-gray-500 tabular-nums">{progressPercent}%</span>
-        </div>
-        <div className="w-full bg-gray-100 rounded-full h-2">
-          <div
-            className="bg-gradient-to-r from-primary-500 to-emerald-500 h-2 rounded-full transition-all duration-500"
-            style={{ width: `${progressPercent}%` }}
-          />
         </div>
       </div>
 

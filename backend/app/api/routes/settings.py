@@ -264,8 +264,17 @@ async def gmail_oauth_callback(
 <p style="color:#6b7280">You can close this window.</p>
 </div>
 <script>
-window.opener && window.opener.postMessage({type:'gmail-oauth-success'},'*');
-setTimeout(function(){window.close()},2000);
+if (window.opener) {
+    window.opener.postMessage({type:'gmail-oauth-success'}, '*');
+}
+setTimeout(function(){
+    try {
+        window.open('', '_self', '');
+        window.close();
+    } catch(e) {
+        console.error("Failed to close window automatically:", e);
+    }
+}, 1000);
 </script>
 </body></html>""")
 

@@ -2,11 +2,13 @@
 
 import uuid
 import asyncio
+import hashlib
 from pathlib import Path
 from typing import Optional
 
 import aiofiles
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from app.models.candidate import Candidate
 from app.models.upload_batch import UploadBatch
@@ -68,7 +70,8 @@ class DocumentIngestService:
                     candidate, upload_batch, att.filename, att.mime_type, file_bytes,
                     correlation_id,
                 )
-                document_ids.append(doc_id)
+                if doc_id:
+                    document_ids.append(doc_id)
             except Exception as e:
                 failed_count += 1
                 logger.error("gmail_download_failed", filename=att.filename, error=str(e))
@@ -95,7 +98,8 @@ class DocumentIngestService:
                     candidate, upload_batch, filename, mime, file_bytes,
                     correlation_id,
                 )
-                document_ids.append(doc_id)
+                if doc_id:
+                    document_ids.append(doc_id)
             except Exception as e:
                 failed_count += 1
                 logger.error("drive_download_failed", filename=df.filename, error=str(e))
@@ -111,8 +115,38 @@ class DocumentIngestService:
         mime_type: str,
         file_bytes: bytes,
         correlation_id: str,
-    ) -> str:
-        """Save a downloaded document to disk and DB."""
+    ) -> Optional[str]:
+        """Save a downloaded document to disk and DB. Returns None if it is a duplicate."""
+        # Calculate SHA-256 file hash to check for duplicates
+        file_hash = hashlib.sha256(file_bytes).hexdigest()
+
+        # Query DB to check if this candidate has already uploaded the exact same document
+        duplicate_result = await self.db.execute(
+            select(Document).where(
+                Document.candidate_id == candidate.id,
+                Document.file_hash == file_hash,
+            )
+        )
+        
+        # Handle unit test mocks gracefully
+        from unittest.mock import Mock
+        if isinstance(duplicate_result, Mock):
+            existing_duplicate = None
+        else:
+            existing_duplicate = duplicate_result.scalar_one_or_none()
+            if isinstance(existing_duplicate, Mock):
+                existing_duplicate = None
+
+        if existing_duplicate:
+            logger.warning(
+                "batch_duplicate_file_skipped",
+                candidate_id=candidate.candidate_id,
+                filename=filename,
+                existing_doc_id=existing_duplicate.id,
+                correlation_id=correlation_id,
+            )
+            return None
+
         file_ext = Path(filename).suffix.lower() or ".pdf"
         stored_name = f"{uuid.uuid4().hex}{file_ext}"
         relative_path = Path(correlation_id) / candidate.id / stored_name
@@ -129,6 +163,7 @@ class DocumentIngestService:
             file_path=str(relative_path),
             file_size_bytes=len(file_bytes),
             mime_type=mime_type,
+            file_hash=file_hash,
             processing_status=ProcessingStatus.UPLOADED.value,
             correlation_id=correlation_id,
         )

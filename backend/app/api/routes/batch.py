@@ -276,6 +276,9 @@ async def list_batch_documents(
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
 
+    # Select all parent_document_ids that are not null (i.e. documents that were split)
+    parents_select = select(Document.parent_document_id).where(Document.parent_document_id.is_not(None))
+
     # Single JOIN query: Documents → BatchImportCandidates (replaces 2-step IN pattern)
     doc_result = await db.execute(
         select(Document)
@@ -285,7 +288,10 @@ async def list_batch_documents(
             & (BatchImportCandidate.batch_import_id == batch_id)
             & (BatchImportCandidate.candidate_id.is_not(None)),
         )
-        .where(Document.created_at >= batch.created_at)
+        .where(
+            Document.created_at >= batch.created_at,
+            Document.id.notin_(parents_select)
+        )
         .order_by(Document.created_at.desc())
     )
     documents = doc_result.scalars().all()

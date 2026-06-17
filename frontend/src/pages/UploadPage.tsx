@@ -16,7 +16,6 @@ export default function UploadPage() {
     batchLogs,
     batchHistory,
     error,
-    setError,
     batchUploading,
     processing,
     loadHistory,

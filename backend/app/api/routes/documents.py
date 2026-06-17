@@ -37,7 +37,10 @@ async def list_documents(
     db: AsyncSession = Depends(get_db),
     _current_user: AuthUser = Depends(get_current_user),
 ):
-    query = select(Document).order_by(Document.created_at.desc())
+    # Select all parent_document_ids that are not null (i.e. documents that were split)
+    parents_select = select(Document.parent_document_id).where(Document.parent_document_id.is_not(None))
+
+    query = select(Document).where(Document.id.notin_(parents_select)).order_by(Document.created_at.desc())
 
     if candidate_id:
         query = query.where(Document.candidate_id == candidate_id)

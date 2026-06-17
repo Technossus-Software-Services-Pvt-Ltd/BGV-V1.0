@@ -79,22 +79,32 @@ def wrap_ocr_text_for_prompt(text: str) -> str:
 
 
 # Document-type validation patterns — if OCR text claims to be type X,
-# at least one of these patterns should appear in the text
+# at least one of these patterns should appear in the text.
+# Keys MUST match DocumentType enum values exactly.
 _DOC_TYPE_EVIDENCE = {
-    "aadhaar_card": [re.compile(r'\d{4}\s?\d{4}\s?\d{4}')],  # 12-digit UID
-    "pan_card": [re.compile(r'[A-Z]{5}\d{4}[A-Z]')],  # PAN format
-    "passport": [re.compile(r'(?i)(passport|republic\s+of\s+india|travel\s+document)')],
-    "driving_license": [re.compile(r'(?i)(driving|licence|license|transport|motor\s+vehicle)')],
-    "voter_id": [re.compile(r'(?i)(election|voter|electoral)')],
-    "tenth_marksheet": [re.compile(r'(?i)(marks?|grade|board|examination|subject|secondary)')],
-    "twelfth_marksheet": [re.compile(r'(?i)(marks?|grade|board|higher\s+secondary|inter|subject)')],
-    "degree_certificate": [re.compile(r'(?i)(degree|bachelor|master|university|awarded|conferred)')],
-    "experience_letter": [re.compile(r'(?i)(experience|employ|service|designation|work)')],
+    "aadhaar": [re.compile(r'\d{4}\s?\d{4}\s?\d{4}'), re.compile(r'(?i)(aadhaar|aadhar|uidai|unique\s+identification)')],
+    "pan_card": [re.compile(r'[A-Za-z]{5}\d{4}[A-Za-z]'), re.compile(r'(?i)(permanent\s+account|income\s*tax|pan\b)')],
+    "passport": [re.compile(r'(?i)(passport|republic\s+of\s+india|travel\s+document|type\s*p)')],
+    "driving_license": [re.compile(r'(?i)(driving|licence|license|transport|motor\s+vehicle|rto|lmv)')],
+    "voter_id": [re.compile(r'(?i)(election|voter|electoral|epic)')],
+    "birth_certificate": [re.compile(r'(?i)(birth\s+certificate|registrar\s+of\s+births)')],
+    "marksheet_10th": [re.compile(r'(?i)(marks?|grade|board|examination|subject|secondary|ssc|class\s*(x|10))')],
+    "marksheet_12th": [re.compile(r'(?i)(marks?|grade|board|higher\s+secondary|inter|subject|hsc|class\s*(xii|12))')],
+    "certificate_degree": [re.compile(r'(?i)(degree|bachelor|master|university|awarded|conferred|engineering)')],
+    "certificate_diploma": [re.compile(r'(?i)(diploma|polytechnic|awarded|conferred)')],
+    "marksheet_degree": [re.compile(r'(?i)(sgpa|cgpa|semester|grade\s*card|credits|marks)')],
+    "experience_letter": [re.compile(r'(?i)(experience|employ|service|designation|work|reliev|releas|resign|last\s+working)')],
     "relieving_letter": [re.compile(r'(?i)(reliev|releas|resign|last\s+working)')],
-    "offer_letter": [re.compile(r'(?i)(offer|appoint|join|compensation|salary)')],
-    "salary_slip": [re.compile(r'(?i)(salary|pay\s*slip|gross|net|deduction|earning)')],
-    "bank_statement": [re.compile(r'(?i)(bank|statement|balance|credit|debit|transaction)')],
-    "address_proof": [re.compile(r'(?i)(address|resident|utility|bill|electricity|gas)')],
+    "offer_letter": [re.compile(r'(?i)(offer|appoint|join|compensation|pleased\s+to\s+offer)')],
+    "appointment_letter": [re.compile(r'(?i)(appoint|joining|employment\s+terms|pleased\s+to\s+appoint)')],
+    "payslip": [re.compile(r'(?i)(salary|pay\s*slip|gross|net\s*pay|deduction|earning|epf|esi|tds|hra|basic)')],
+    "bank_statement": [re.compile(r'(?i)(bank|statement|balance|credit|debit|transaction|account\s+no)')],
+    "form16": [re.compile(r'(?i)(form\s*(?:no\.?)?\s*16|section\s+203|tds\s+certificate|assessment\s+year)')],
+    "form26as": [re.compile(r'(?i)(form\s*26\s*as|tax\s+credit|annual\s+tax\s+statement)')],
+    "itr": [re.compile(r'(?i)(itr|income\s+tax\s+return|itr[\-\s]*v|acknowledgement)')],
+    "cancelled_cheque": [re.compile(r'(?i)(cancelled|cheque|ifsc|micr)')],
+    "electricity_bill": [re.compile(r'(?i)(electricity|energy\s+charges|kwh|msedcl|bescom)')],
+    "rent_agreement": [re.compile(r'(?i)(rent|tenant|landlord|lease|lessor|lessee)')],
 }
 
 

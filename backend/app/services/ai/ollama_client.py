@@ -48,14 +48,19 @@ class OllamaClient:
             timeout=httpx.Timeout(self.timeout, connect=settings.ollama_connect_timeout),
         )
 
-    async def generate(self, prompt: str, temperature: float = 0.1) -> OllamaResponse:
+    async def generate(
+        self,
+        prompt: str,
+        temperature: float = 0.1,
+        format: Optional[dict | str] = "json",
+    ) -> OllamaResponse:
         start_time = time.time()
 
         payload = {
             "model": self.model,
             "prompt": prompt,
             "stream": False,
-            "format": "json",
+            "format": format,
             "options": {
                 "temperature": temperature,
                 "num_predict": settings.ollama_num_predict,

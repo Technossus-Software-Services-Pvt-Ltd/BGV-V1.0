@@ -26,11 +26,14 @@ class TestPdfPageLimit:
 
         # Mock a 3-page PDF
         mock_doc = MagicMock()
+        mock_doc.is_encrypted = False
         mock_doc.__len__ = lambda self: 3
         mock_fitz.open.return_value = mock_doc
 
         mock_page = MagicMock()
         mock_pixmap = MagicMock()
+        mock_pixmap.width = 1000
+        mock_pixmap.height = 1000
         mock_page.get_pixmap.return_value = mock_pixmap
         mock_doc.__getitem__ = lambda self, idx: mock_page
 
@@ -53,11 +56,14 @@ class TestPdfPageLimit:
 
         # Mock a 100-page PDF
         mock_doc = MagicMock()
+        mock_doc.is_encrypted = False
         mock_doc.__len__ = lambda self: 100
         mock_fitz.open.return_value = mock_doc
 
         mock_page = MagicMock()
         mock_pixmap = MagicMock()
+        mock_pixmap.width = 1000
+        mock_pixmap.height = 1000
         mock_page.get_pixmap.return_value = mock_pixmap
         mock_doc.__getitem__ = lambda self, idx: mock_page
 
@@ -79,11 +85,14 @@ class TestPdfPageLimit:
         mock_settings.max_pdf_pages = 10
 
         mock_doc = MagicMock()
+        mock_doc.is_encrypted = False
         mock_doc.__len__ = lambda self: 10
         mock_fitz.open.return_value = mock_doc
 
         mock_page = MagicMock()
         mock_pixmap = MagicMock()
+        mock_pixmap.width = 1000
+        mock_pixmap.height = 1000
         mock_page.get_pixmap.return_value = mock_pixmap
         mock_doc.__getitem__ = lambda self, idx: mock_page
 
@@ -164,6 +173,8 @@ class TestOcrPageTimeout:
     async def test_ocr_completes_within_timeout(self, mock_settings, ocr_stage, mock_page, mock_document):
         """When OCR completes within timeout, result is returned normally."""
         mock_settings.ocr_page_timeout_seconds = 30
+        mock_settings.ocr_retry_confidence_threshold = 0.5
+        mock_settings.ocr_retry_aggressive_preprocessors = []
 
         img_array = np.zeros((100, 100, 3), dtype=np.uint8)
         ocr_stage.preprocessor.normalize_image.return_value = (img_array, {"final_width": 100, "final_height": 100})
@@ -226,9 +237,9 @@ class TestBlankPageDetection:
         from app.services.ocr.preprocessor import DocumentPreprocessor
 
         preprocessor = DocumentPreprocessor()
-        # 99% white (above 0.98 threshold)
-        img = np.full((100, 100, 3), 255, dtype=np.uint8)
-        img[:1, :, :] = 0  # Only 1% dark
+        # 99.8% white (above 0.995 threshold)
+        img = np.full((500, 500, 3), 255, dtype=np.uint8)
+        img[:1, :, :] = 0  # Only 0.2% dark (1 out of 500 rows)
         assert preprocessor.is_blank_page(img) == True
 
     def test_grayscale_blank(self):
@@ -249,6 +260,7 @@ class TestPhase3Config:
     def test_max_pdf_pages_default(self):
         from app.core.config import Settings
         s = Settings(
+            _env_file=None,
             database_url="postgresql+asyncpg://u:p@localhost/db",
             database_sync_url="postgresql://u:p@localhost/db",
             secret_key="test-secret-key-for-unit-testing-only",
@@ -258,6 +270,7 @@ class TestPhase3Config:
     def test_ocr_page_timeout_default(self):
         from app.core.config import Settings
         s = Settings(
+            _env_file=None,
             database_url="postgresql+asyncpg://u:p@localhost/db",
             database_sync_url="postgresql://u:p@localhost/db",
             secret_key="test-secret-key-for-unit-testing-only",

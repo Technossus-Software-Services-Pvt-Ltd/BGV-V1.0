@@ -123,20 +123,23 @@ class SplittingStage:
         page_paths = [Path(p.file_path) for p in group_pages]
 
         # Reconstruct PDF from page images
-        parent_dir = Path(parent.file_path).parent
-        child_dir = parent_dir / child_id
-        child_dir.mkdir(parents=True, exist_ok=True)
+        parent_dir_rel = Path(parent.file_path).parent
+        child_dir_rel = parent_dir_rel / child_id
+        
+        child_dir_abs = settings.upload_path / child_dir_rel
+        child_dir_abs.mkdir(parents=True, exist_ok=True)
 
         child_filename = f"{group.document_type}_{child_id[:8]}.pdf"
-        child_pdf_path = child_dir / child_filename
+        child_pdf_path_rel = child_dir_rel / child_filename
+        child_pdf_path_abs = child_dir_abs / child_filename
 
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(
-            None, self.splitter.reconstruct_pdf_from_pages, page_paths, child_pdf_path
+            None, self.splitter.reconstruct_pdf_from_pages, page_paths, child_pdf_path_abs
         )
 
         # Get file size
-        file_size = child_pdf_path.stat().st_size
+        file_size = child_pdf_path_abs.stat().st_size
 
         # Create child Document record
         child_doc = Document(
@@ -146,7 +149,7 @@ class SplittingStage:
             parent_document_id=parent.id,
             original_filename=f"{parent.original_filename} [{group.document_type}]",
             stored_filename=child_filename,
-            file_path=str(child_pdf_path),
+            file_path=str(child_pdf_path_rel),
             file_size_bytes=file_size,
             mime_type="application/pdf",
             total_pages=len(group.pages),

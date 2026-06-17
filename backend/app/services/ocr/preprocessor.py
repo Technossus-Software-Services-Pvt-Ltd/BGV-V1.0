@@ -150,7 +150,7 @@ class DocumentPreprocessor:
 
         return img
 
-    def is_blank_page(self, img_array: np.ndarray, threshold: float = 0.98) -> bool:
+    def is_blank_page(self, img_array: np.ndarray, threshold: float = 0.995) -> bool:
         if len(img_array.shape) == 3:
             gray = np.mean(img_array, axis=2)
         else:

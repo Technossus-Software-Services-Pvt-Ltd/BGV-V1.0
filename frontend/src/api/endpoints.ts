@@ -19,7 +19,6 @@ import {
   RequiredDocumentChecklistSaveRequest,
   FileNamingRule,
   FileNamingRuleSaveRequest,
-  ReviewQueueItem,
   ReviewQueueResponse,
   NotificationLogItem,
   DashboardStats,
